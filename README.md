@@ -27,6 +27,32 @@
 
 ---
 
+## 关于本项目（fork 说明）
+
+本仓库是 [`eternalcurse/PT-Accelerator`](https://github.com/eternalcurse/PT-Accelerator) 的维护分支，已合并 [`KoWming/PT-Accelerator`](https://github.com/KoWming/PT-Accelerator) 的改进，并由本仓库继续维护、构建和发布镜像。
+
+**镜像**：`ghcr.io/aeolus2025/pt-accelerator`
+
+| 标签 | 说明 |
+| --- | --- |
+| `latest` | 跟随 `main` 分支 |
+| `vX.Y.Z` | 对应 `version.py` 的版本号，发版时生成 |
+
+支持 `linux/amd64` 与 `linux/arm64`，Docker 会自动选择对应架构。
+
+> **镜像可见性**：GHCR 的 package 默认是 private。若 NAS 不想 `docker login` 拉取，首次构建完成后到 GitHub 的 package 设置里执行 `Change visibility → Public`（只需一次）。
+
+**与上游的差异**：
+
+- **前端依赖本地化**：bootstrap / bootstrap-icons / jquery 全部内置在 `app/static/`，不再依赖 `cdn.jsdelivr.net`（内网或 CDN 不可达时页面样式与交互仍正常）
+- **多架构支持**：`cfst_linux_amd64/` 与 `cfst_linux_arm64/` 双架构二进制，`Dockerfile` 按 `TARGETARCH` 自动选取
+- **CI 推送到 GHCR**：使用 `GITHUB_TOKEN`，无需自建 secret；`main` 分支 push 只做构建验证，`tag` 或手动触发才推送
+- **已知问题**：qBittorrent 5.2+ 的 WebUI API 密钥认证尚未适配（见 TODO §2）
+
+> 从上游镜像迁移到本镜像时，`./config`、`./logs` 目录可直接复用，无需重建数据。
+
+---
+
 ## 快速开始
 
 ### 1. Docker一键部署
@@ -42,11 +68,8 @@ docker run -d \
   -v /path/to/config:/app/config \
   -v /path/to/logs:/app/logs \
   -e TZ=Asia/Shanghai \
-<<<<<<< HEAD
   -e APP_PORT=23333 \
-  eternalcurse/pt-accelerator:latest
-=======
-  kowming/pt-accelerator:latest
+  ghcr.io/aeolus2025/pt-accelerator:latest
 
 # 指定架构（ARM64架构）
 docker run -d \
@@ -56,8 +79,8 @@ docker run -d \
   -v /path/to/config:/app/config \
   -v /path/to/logs:/app/logs \
   -e TZ=Asia/Shanghai \
-  kowming/pt-accelerator:arm64
->>>>>>> kowming/main
+  -e APP_PORT=23333 \
+  ghcr.io/aeolus2025/pt-accelerator:arm64
 ```
 
 或使用`docker-compose.yml`：
@@ -65,8 +88,7 @@ docker run -d \
 ```yaml
 services:
   pt-accelerator:
-    image: kowming/pt-accelerator:latest
-#    image: eternalcurse/pt-accelerator:latest
+    image: ghcr.io/aeolus2025/pt-accelerator:latest
     container_name: pt-accelerator
     restart: unless-stopped
     network_mode: host
@@ -91,7 +113,7 @@ docker-compose up -d
 
 ```bash
 # 克隆仓库
-git clone https://github.com/eternalcurse/PT-Accelerator.git
+git clone https://github.com/Aeolus2025/PT-Accelerator.git
 cd PT-Accelerator
 
 # 安装依赖
@@ -266,16 +288,16 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port ${APP_PORT:-23333}
   A: 会影响。建议在测速时临时关闭系统代理，确保获得准确的测速结果。
 
 - **Q: 项目如何更新？**  
-  A: 使用Docker部署的用户可以通过`docker pull eternalcurse/pt-accelerator:latest`拉取最新镜像，再重新创建容器。
+  A: 使用Docker部署的用户可以通过`docker pull ghcr.io/aeolus2025/pt-accelerator:latest`拉取最新镜像，再重新创建容器。
 
 - **Q: 支持哪些架构？**  
   A: 支持AMD64和ARM64架构，包括x86_64服务器、树莓派、ARM服务器等。Docker会自动选择对应架构的镜像。
 
 - **Q: 如何在树莓派上运行？**  
-  A: 树莓派使用ARM64架构，直接使用`docker pull eternalcurse/pt-accelerator:latest`即可，Docker会自动选择ARM64版本。
+  A: 树莓派使用ARM64架构，直接使用`docker pull ghcr.io/aeolus2025/pt-accelerator:latest`即可，Docker会自动选择ARM64版本。
 
 - **Q: 如何手动构建特定版本的镜像？**  
-  A: 在GitHub Actions页面可以手动触发构建，并自定义版本号（如v1.0.0-hotfix），支持紧急修复版本发布。
+  A: 在GitHub Actions页面选择「Build and Publish Docker Image (GHCR)」手动触发，可自定义标签（如 `v2.1.0-hotfix`），构建后推送到 GHCR。
 
 - **Q: 支持哪些通知方式？**  
   A: 支持多种通知渠道，包括系统内置通知、邮件通知等，可在配置中设置通知方式和频率。

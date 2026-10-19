@@ -1,5 +1,10 @@
-name: Build and Publish Docker Image (Docker Hub)
+name: Build and Publish Docker Image (GHCR)
 
+# 触发策略：
+#   - 手动 workflow_dispatch：随时可跑，可自定义标签
+#   - tag v*.*.*：发版时构建（这是常态发布路径）
+#   - main 分支：默认只构建不推送（做一次构建验证），避免每次 push 都等待 QEMU 多架构推送
+#     需要"随时推送 main 快照"时，手动跑 workflow_dispatch 并输入 :main 之类的标签
 on:
   push:
     branches: [ main ]
@@ -7,13 +12,18 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '自定义版本号 (例如: v1.0.0)'
+        description: '自定义标签 (例如: v2.1.0 或 main)。留空则不额外打标签'
         required: false
         default: ''
         type: string
 
 permissions:
   contents: read
+  packages: write   # 推送镜像到 GHCR 必需
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   docker:
@@ -28,12 +38,23 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+      - name: Decide whether to push
+        id: guard
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "branch" ]; then
+            echo "push=false" >> $GITHUB_OUTPUT
+            echo "推送已跳过：main 分支 push 仅做构建验证"
+          else
+            echo "push=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Log in to GHCR
+        if: steps.guard.outputs.push == 'true'
+        uses: docker/login-action@v3.3.0
         with:
-          registry: docker.io
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract version from version.py
         id: version
@@ -47,15 +68,11 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            docker.io/${{ secrets.DOCKER_USERNAME }}/pt-accelerator
+            ghcr.io/${{ github.repository_owner }}/pt-accelerator
           tags: |
-            # Git tag 标签（如 v2.0.4）
             type=ref,event=tag
-            # latest 标签（仅在默认分支时）
             type=raw,value=latest,enable={{is_default_branch}}
-            # 带 v 前缀的程序版本号标签（如 v2.0.4）
-            type=raw,value=${{ steps.version.outputs.version_with_v }},enable=${{ steps.version.outputs.version_with_v != '' }}
-            # 手动输入的自定义版本号标签
+            type=raw,value=${{ steps.version.outputs.version_with_v }}
             type=raw,value=${{ github.event.inputs.version }},enable=${{ github.event.inputs.version != '' }}
 
       - name: Build and push (multi-arch)
@@ -64,9 +81,6 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ${{ steps.meta.outputs.tags }}
-            docker.io/${{ secrets.DOCKER_USERNAME }}/pt-accelerator:arm64
+          push: ${{ steps.guard.outputs.push }}
+          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-

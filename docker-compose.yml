@@ -1,6 +1,6 @@
 services:
   pt-accelerator:
-    image: eternalcurse/pt-accelerator:latest
+    image: ghcr.io/aeolus2025/pt-accelerator:latest
     container_name: pt-accelerator
     restart: unless-stopped
     network_mode: host

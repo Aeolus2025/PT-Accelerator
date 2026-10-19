@@ -332,6 +332,10 @@ class HostsManager:
                 all_entries["pt_sites"] = pt_entries
             logger.info(f"收集到 {len(pt_entries)} 条PT站点条目")
 
+            # 2.5 清理历史残留：domain_ip_history 只保留当前 tracker 域名，
+            #     避免旧的 hosts 源域名在源被删除/禁用后仍以 HistoryIPs 混入 MergedHosts
+            self._prune_domain_ip_history()
+
 
 
             # 3. 订阅源条目
@@ -346,7 +350,10 @@ class HostsManager:
             backup_domains = set(merged_hosts_backup.keys())
             current_domains = set()
             abnormal_sources = set()
-            if self.config.get("hosts_sources"):
+            merged_enabled = self._is_merged_hosts_enabled()
+            if not merged_enabled:
+                logger.info("[MergedHosts] 当前没有启用的 hosts 源，跳过来源收集与历史兜底")
+            if merged_enabled and self.config.get("hosts_sources"):
                 total_sources = len([s for s in self.config["hosts_sources"] if s.get("enable") and s.get("url") and s.get("name")])
                 logger.info(f"开始处理 {total_sources} 个外部hosts源")
                 for i, source in enumerate(self.config["hosts_sources"]):
@@ -370,12 +377,13 @@ class HostsManager:
                             entry_count += 1
                         logger.info(f"处理hosts源 {source_name} 的 {entry_count} 条记录完成，耗时 {time.time() - entry_process_start:.2f} 秒")
             # 4. 处理历史IP记录作为兜底（只收集，不检测）
-            for domain, ip in self.domain_ip_history.items():
-                # 新增：跳过禁用tracker域名
-                if domain in tracker_domains or domain.strip().lower() in disabled_domains:
-                    continue
-                source_entries_map.setdefault("HistoryIPs", []).append(f"{ip}\t{domain}")
-                current_domains.add(domain)
+            if merged_enabled:
+                for domain, ip in self.domain_ip_history.items():
+                    # 新增：跳过禁用tracker域名
+                    if domain in tracker_domains or domain.strip().lower() in disabled_domains:
+                        continue
+                    source_entries_map.setdefault("HistoryIPs", []).append(f"{ip}\t{domain}")
+                    current_domains.add(domain)
             # 4.5 智能兜底：对比备份，找出本次丢失的域名
             lost_domains = backup_domains - current_domains
             # 获取已禁用的tracker域名
@@ -387,8 +395,11 @@ class HostsManager:
                     logger.info(f"[兜底跳过] 域名 {lost_domain} 已被用户禁用，不参与兜底保留")
                     continue
 
+                # 没有启用任何 hosts 源时不做兜底（防止残留域名被重新捡回）
+                if not self._can_keep_lost_domain(lost_domain):
+                    logger.info(f"[兜底跳过] 域名 {lost_domain} 不满足兜底条件（无启用源/已禁用/黑名单），丢弃")
+                    continue
 
-                
                 lost_ip = merged_hosts_backup[lost_domain]
                 if self._dns_check(lost_domain, lost_ip):
                     source_entries_map.setdefault("LostHosts", []).append(f"{lost_ip}\t{lost_domain}")
@@ -455,11 +466,15 @@ class HostsManager:
             
             # 添加合并后的hosts源section（保持与1.1.0版本兼容的名称）
             if merged_entries:
-                sections.append((
-                    self.source_start_mark % "MergedHosts",
-                    merged_entries,
-                    self.source_end_mark % ("MergedHosts", len(merged_entries))
-                ))
+                if not self._is_merged_hosts_enabled():
+                    # 防御：没有任何启用的 hosts 源时不写 MergedHosts 段（不落盘）
+                    logger.info(f"[MergedHosts] 无启用源，丢弃 {len(merged_entries)} 条合并条目")
+                else:
+                    sections.append((
+                        self.source_start_mark % "MergedHosts",
+                        merged_entries,
+                        self.source_end_mark % ("MergedHosts", len(merged_entries))
+                    ))
             
             # 7. 更新系统hosts文件
             self.task_status = {"status": "running", "message": "正在更新系统hosts文件"}
@@ -474,7 +489,11 @@ class HostsManager:
             for line in log_lines:
                 logger.info(line)
             # 9. 合并完成后更新备份
-            self._save_merged_hosts_backup(merged_dict)
+            if merged_enabled:
+                self._save_merged_hosts_backup(merged_dict)
+            elif merged_dict:
+                logger.info(f"[MergedHosts] 无启用源，不写入备份（本次 {len(merged_dict)} 条）")
+                self._save_merged_hosts_backup({})
             self.task_status = {"status": "done", "message": f"已完成hosts更新，添加了{total_entries}条记录"}
             self.task_running = False
             if self.pending_update:
@@ -698,6 +717,8 @@ class HostsManager:
             self.task_status = {"status": "running", "message": "正在处理PT站点条目"}
             pt_entries = self._collect_pt_entries()
             logger.info(f"处理PT站点条目完成，共 {len(pt_entries)} 条，耗时 {time.time() - start_time:.2f} 秒")
+            # 清理历史残留：只保留当前 tracker 域名，避免残留域名混入 MergedHosts
+            self._prune_domain_ip_history()
             sections = []
             if pt_entries:
                 sections.append((self.pt_start_mark, pt_entries, self.pt_end_mark % len(pt_entries)))
@@ -712,7 +733,10 @@ class HostsManager:
             backup_domains = set(merged_hosts_backup.keys())
             current_domains = set()
             abnormal_sources = set()
-            if self.config.get("hosts_sources"):
+            merged_enabled = self._is_merged_hosts_enabled()
+            if not merged_enabled:
+                logger.info("[MergedHosts] 当前没有启用的 hosts 源，跳过来源收集与历史兜底")
+            if merged_enabled and self.config.get("hosts_sources"):
                 total_sources = len([s for s in self.config["hosts_sources"] if s.get("enable") and s.get("url") and s.get("name")])
                 logger.info(f"开始处理 {total_sources} 个外部hosts源")
                 for i, source in enumerate(self.config["hosts_sources"]):
@@ -735,6 +759,8 @@ class HostsManager:
                             current_domains.add(domain)
                             entry_count += 1
                         logger.info(f"处理hosts源 {source_name} 的 {entry_count} 条记录完成，耗时 {time.time() - entry_process_start:.2f} 秒")
+            # 历史IP兜底：独立于 hosts_sources 分支（原实现嵌在 if 内，无源时永远不生效）
+            if merged_enabled:
                 for domain, ip in self.domain_ip_history.items():
                     # 新增：跳过禁用tracker域名
                     if domain in tracker_domains or domain.strip().lower() in disabled_domains:
@@ -743,6 +769,10 @@ class HostsManager:
                     current_domains.add(domain)
             lost_domains = backup_domains - current_domains
             for lost_domain in lost_domains:
+                # 没有启用任何 hosts 源时不做兜底（防止残留域名被重新捡回）
+                if not self._can_keep_lost_domain(lost_domain):
+                    logger.info(f"[兜底跳过] 域名 {lost_domain} 不满足兜底条件（无启用源/已禁用/黑名单），丢弃")
+                    continue
                 lost_ip = merged_hosts_backup[lost_domain]
                 if self._dns_check(lost_domain, lost_ip):
                     domain_ip_candidates.setdefault(lost_domain, set()).add(lost_ip)
@@ -779,7 +809,11 @@ class HostsManager:
             logger.info("生成合并后的最终hosts条目")
             merged_entries = [f"{ip}\t{domain}" for domain, (ip, _) in domain_ip_latency.items()]
             if merged_entries:
-                sections.append((self.source_start_mark % "MergedHosts", merged_entries, self.source_end_mark % ("MergedHosts", len(merged_entries))))
+                if not self._is_merged_hosts_enabled():
+                    # 防御：没有任何启用的 hosts 源时不写 MergedHosts 段（不落盘）
+                    logger.info(f"[MergedHosts] 无启用源，丢弃 {len(merged_entries)} 条合并条目")
+                else:
+                    sections.append((self.source_start_mark % "MergedHosts", merged_entries, self.source_end_mark % ("MergedHosts", len(merged_entries))))
                 
             self.task_status = {"status": "running", "message": "正在更新系统hosts文件"}
             logger.info("开始更新系统hosts文件")
@@ -791,7 +825,11 @@ class HostsManager:
             logger.info("=== 域名优选IP结果汇总 ===")
             for line in log_lines:
                 logger.info(line)
-            self._save_merged_hosts_backup(merged_dict)
+            if merged_enabled:
+                self._save_merged_hosts_backup(merged_dict)
+            elif merged_dict:
+                logger.info(f"[MergedHosts] 无启用源，不写入备份（本次 {len(merged_dict)} 条）")
+                self._save_merged_hosts_backup({})
             self.task_status = {"status": "done", "message": f"Cloudflare优选完成！IP: {best_ip}，已更新 {len(filtered_trackers) if isinstance(filtered_trackers, list) else 0} 个Tracker和 {total_entries} 条hosts记录"}
             self.task_running = False
             logger.info("已完成hosts文件更新")
@@ -1460,6 +1498,76 @@ class HostsManager:
             if not t.get('enable', True) and t.get('domain'):
                 disabled_domains.add(t['domain'].strip().lower())
         return disabled_domains
+
+    # ---------------------------------------------------------------
+    # MergedHosts 残留清理相关
+    # 背景：domain_ip_history 是内存字典，容器重启前不会清空；旧的外部
+    # hosts 源域名在被删除/禁用后仍会以 "HistoryIPs" 的名义混进 MergedHosts。
+    # 以下方法用于在任何生成路径上统一做一次过滤。
+    # ---------------------------------------------------------------
+
+    @staticmethod
+    def _normalize_domain(domain: str) -> str:
+        """域名规范化：去端口、去首尾空白、转小写，用于一致比对"""
+        if not domain:
+            return ""
+        return str(domain).strip().lower().split(':')[0]
+
+    def _is_merged_hosts_enabled(self) -> bool:
+        """是否存在至少一个已启用且配置完整的 hosts 源"""
+        for source in (self.config.get("hosts_sources") or []):
+            if source.get("enable") and source.get("url") and source.get("name"):
+                return True
+        return False
+
+    def _prune_domain_ip_history(self):
+        """清理 domain_ip_history：只保留当前 tracker 列表中的域名
+
+        判定规则（必须同时满足才保留）：
+        1. 规范化后属于当前配置的某个 tracker 域名（含端口写法自动归一）；
+        2. 该 tracker 未被禁用（已禁用的域名不参与兜底）。
+
+        返回被清理掉的域名集合，便于日志与测试。
+        """
+        history = getattr(self, "domain_ip_history", None)
+        if not history:
+            return set()
+
+        active = set()
+        for t in (self.config.get("trackers") or []):
+            if not t.get("enable", True):
+                continue  # 已禁用的 tracker 不参与兜底
+            d = self._normalize_domain(t.get("domain") or "")
+            if d:
+                active.add(d)
+
+        stale = []
+        for key in list(history.keys()):
+            if self._normalize_domain(key) not in active:
+                stale.append(key)
+
+        for key in stale:
+            history.pop(key, None)
+
+        if stale:
+            logger.info(f"[历史清理] domain_ip_history 清理 {len(stale)} 条残留: {', '.join(sorted(stale))}")
+        return set(stale)
+
+    def _can_keep_lost_domain(self, domain: str) -> bool:
+        """判断"从备份中捡回"的域名是否允许保留
+
+        只有在存在已启用 hosts 源时才允许兜底；且必须未被禁用、未被黑名单命中。
+        """
+        if not self._is_merged_hosts_enabled():
+            return False
+        normalized = self._normalize_domain(domain)
+        if not normalized:
+            return False
+        if normalized in self._get_disabled_tracker_domains():
+            return False
+        if is_blacklisted(normalized):
+            return False
+        return True
 
 
  
