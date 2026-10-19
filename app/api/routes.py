@@ -10,6 +10,7 @@ from croniter import croniter
 from urllib.parse import urlparse
 import time
 import copy
+import secrets
 
 from app.services.cloudflare_speed_test import CloudflareSpeedTestService
 from app.services.hosts_manager import HostsManager
@@ -265,6 +266,26 @@ async def update_auth_config(
                 logger.info("登录密码已修改") 
                 # 密码修改成功，使当前会话失效，强制重新登录
                 request.session.pop("user", None) 
+
+    # 启用认证但从未设置过密码：当场生成初始密码并打印到日志（原实现只在应用启动时生成，
+    # 导致"启用后必须重启才能拿到密码"）。与 app/main.py 的启动兜底逻辑保持一致。
+    if auth_settings.get("enable") and not auth_settings.get("password_hash"):
+        generated_password = secrets.token_urlsafe(12)
+        auth_settings["password_hash"] = get_password_hash(generated_password)
+        config_changed = True
+
+        print("=" * 60)
+        print("重要：管理员密码已自动生成")
+        print(f"用户名: {auth_settings.get('username')}")
+        print(f"密码: {generated_password}")
+        print("请妥善保存此密码，登录后请立即修改")
+        print("=" * 60)
+
+        logger.warning("=" * 60)
+        logger.warning(f"管理员密码尚未设置。已自动生成初始密码: {generated_password}")
+        logger.warning("请使用此密码登录后，在控制面板中修改密码。")
+        logger.warning(f"用户名: {auth_settings.get('username')}")
+        logger.warning("=" * 60)
 
     if config_changed:
         current_config["auth"] = auth_settings

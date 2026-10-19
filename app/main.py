@@ -6,6 +6,7 @@ from pathlib import Path
 import os
 import copy
 import logging
+import platform
 import yaml
 import uvicorn
 import secrets
@@ -126,16 +127,17 @@ def create_nowip_file():
             logger.info(f"成功创建nowip_hosts.txt文件，内容为: {DEFAULT_CLOUDFLARE_IP}")
         except Exception as e:
             logger.error(f"创建nowip_hosts.txt文件失败: {str(e)}")
-    
-    # 检查cfst_linux_amd64目录下是否也需要此文件
-    cfst_dir = "cfst_linux_amd64"
-    if os.path.exists(cfst_dir) and not os.path.exists(os.path.join(cfst_dir, "nowip_hosts.txt")):
+
+    # 同时在当前架构对应的 cfst 目录下创建一份（arm64 机器上没有 cfst_linux_amd64 目录，
+    # 原先硬编码会静默跳过，导致 ARM 设备首次运行缺少该文件）
+    arch_dir = "cfst_linux_arm64" if platform.machine().lower() in ("aarch64", "arm64") else "cfst_linux_amd64"
+    if os.path.exists(arch_dir) and not os.path.exists(os.path.join(arch_dir, "nowip_hosts.txt")):
         try:
-            with open(os.path.join(cfst_dir, "nowip_hosts.txt"), "w") as f:
+            with open(os.path.join(arch_dir, "nowip_hosts.txt"), "w") as f:
                 f.write(DEFAULT_CLOUDFLARE_IP)
-            logger.info(f"成功在{cfst_dir}目录下创建nowip_hosts.txt文件")
+            logger.info(f"成功在{arch_dir}目录下创建nowip_hosts.txt文件")
         except Exception as e:
-            logger.error(f"在{cfst_dir}目录下创建nowip_hosts.txt文件失败: {str(e)}")
+            logger.error(f"在{arch_dir}目录下创建nowip_hosts.txt文件失败: {str(e)}")
 
 # 加载或创建配置文件
 def load_config():
@@ -298,7 +300,7 @@ async def login_for_access_token(
         request.session["csrf_token"] = new_csrf_token
         return templates.TemplateResponse("login.html", {
             "request": request, 
-            "error_message": "管理员密码尚未设置，请重启容器并查看应用日志获取临时密码。",
+            "error_message": "管理员密码尚未设置。请查看应用日志（logs/app.log）中的初始密码；若日志中也没有，重启容器后会重新生成。",
             "csrf_token": new_csrf_token
         })
 

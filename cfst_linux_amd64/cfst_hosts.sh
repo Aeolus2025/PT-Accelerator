@@ -14,27 +14,37 @@ cd "$SCRIPT_DIR" || exit 1
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"; }
 
 _CHECK() {
-    while true; do
-        if [[ ! -e "nowip_hosts.txt" ]]; then
-            echo -e "该脚本的作用为 CFST 测速后获取最快 IP 并替换 Hosts 中的 Cloudflare CDN IP。\n使用前请先阅读：https://github.com/XIU2/CloudflareSpeedTest/issues/42#issuecomment-768273848"
-            echo -e "第一次使用，请先将 Hosts 中所有 Cloudflare CDN IP 统一改为一个 IP。"
-            read -e -p "输入该 Cloudflare CDN IP 并回车（后续不再需要该步骤）：" NOWIP
-            if [[ -n "${NOWIP}" ]]; then
-                echo ${NOWIP} > nowip_hosts.txt
-                break
-            else
-                echo "该 IP 不能是空！"
-            fi
-        else
-            break
+    # nowip_hosts.txt 记录"上一次写入 hosts 的 IP"，用于下次做旧 IP -> 新 IP 的替换。
+    # 该文件已从版本库移除（属于运行时状态，见 .gitignore），因此首次运行时可能不存在。
+    # 注意：本脚本由 PT-Accelerator 以 subprocess 非交互方式调用，stdin 不是终端，
+    # 绝不能因为文件缺失而进入 read 循环（原实现 while true + 空输入会死循环）。
+    if [[ -e "nowip_hosts.txt" ]]; then
+        return 0
+    fi
+
+    # 仅在交互式终端下才提示用户输入，否则静默跳过
+    if [[ -t 0 ]]; then
+        echo -e "该脚本的作用为 CFST 测速后获取最快 IP 并替换 Hosts 中的 Cloudflare CDN IP。\n使用前请先阅读：https://github.com/XIU2/CloudflareSpeedTest/issues/42#issuecomment-768273848"
+        echo -e "第一次使用，请先将 Hosts 中所有 Cloudflare CDN IP 统一改为一个 IP。"
+        read -e -p "输入该 Cloudflare CDN IP 并回车（回车跳过则不做IP替换）：" NOWIP
+        if [[ -n "${NOWIP}" ]]; then
+            echo "${NOWIP}" > nowip_hosts.txt
+            return 0
         fi
-    done
+    fi
+
+    log "未找到 nowip_hosts.txt，本次将跳过 hosts 中的旧IP替换（首次运行属正常）"
+    return 0
 }
 
 _UPDATE() {
     echo -e "开始测速..."
-    NOWIP=$(head -1 nowip_hosts.txt)
-    log "当前的IP是: ${NOWIP}"
+    NOWIP=$(head -1 nowip_hosts.txt 2>/dev/null)
+    if [[ -n "${NOWIP}" ]]; then
+        log "当前的IP是: ${NOWIP}"
+    else
+        log "当前无历史IP记录，本次不做旧IP替换"
+    fi
 
     # 查找 cfst 可执行文件
     CFST_PATH=""
@@ -102,14 +112,18 @@ EOL
         exit 0
     fi
     log "找到最优IP: ${BESTIP}"
-    echo ${BESTIP} > nowip_hosts.txt
-    echo -e "\n旧 IP 为 ${NOWIP}\n新 IP 为 ${BESTIP}\n"
+    echo "${BESTIP}" > nowip_hosts.txt
+    echo -e "\n旧 IP 为 ${NOWIP:-（无）}\n新 IP 为 ${BESTIP}\n"
 
     # 备份并替换 /etc/hosts（优先替换 PT-Accelerator 区域）
+    # 说明：NOWIP 为空时说明首次运行、没有历史 IP 可替换，此时整体跳过 sed 替换。
+    # 空正则会让 GNU sed 匹配每一行的每个位置，从而破坏 hosts 文件，必须避免。
     if [[ -f "/etc/hosts" ]]; then
         cp -f /etc/hosts /etc/hosts_backup
         cp -f /etc/hosts /etc/hosts.cfst.bak
-        if grep -q "PT-Accelerator" /etc/hosts; then
+        if [[ -z "${NOWIP}" ]]; then
+            log "/etc/hosts 已备份，但无历史IP可替换，保留原内容"
+        elif grep -q "PT-Accelerator" /etc/hosts; then
             PT_START=$(grep -n "PT站点加速开始" /etc/hosts | cut -d: -f1)
             PT_END=$(grep -n "PT站点加速结束" /etc/hosts | cut -d: -f1)
             if [[ -n "$PT_START" && -n "$PT_END" ]]; then
@@ -136,7 +150,9 @@ EOL
     if [[ -f "/mnt/hosts" ]]; then
         log "发现挂载的 /mnt/hosts 文件"
         cp -f /mnt/hosts /mnt/hosts.cfst.bak
-        if grep -q "PT-Accelerator" /mnt/hosts; then
+        if [[ -z "${NOWIP}" ]]; then
+            log "/mnt/hosts 已备份，但无历史IP可替换，保留原内容"
+        elif grep -q "PT-Accelerator" /mnt/hosts; then
             PT_START=$(grep -n "PT站点加速开始" /mnt/hosts | cut -d: -f1)
             PT_END=$(grep -n "PT站点加速结束" /mnt/hosts | cut -d: -f1)
             if [[ -n "$PT_START" && -n "$PT_END" ]]; then
@@ -157,6 +173,8 @@ EOL
         fi
     fi
 
+    # 脚本执行结束时记录本次最优 IP，供下次做旧IP -> 新IP的替换。
+    # 该文件属于运行时状态（见 .gitignore），不再纳入版本库。
     echo "${BESTIP}" > nowip_hosts.txt
     log "已更新 nowip_hosts.txt 文件为新IP: ${BESTIP}"
     log "完成所有替换操作"

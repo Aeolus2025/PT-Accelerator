@@ -645,7 +645,7 @@
                             <div class="alert alert-info" role="alert">
                                 启用登录认证后，所有访问此控制面板的操作都需要验证身份。
                                 {% if not config.auth.password_hash %}
-                                <br><strong>注意: 管理员密码尚未设置。如果启用认证，请自行输入新密码。若留空，系统将自动生成一个初始密码并打印在应用日志中，请使用该密码登录后立即修改（需要重启容器后生效）。</strong>
+                                <br><strong>注意: 管理员密码尚未设置。如果启用认证，请自行输入新密码；若留空，系统将自动生成一个初始密码并打印在日志中。请使用该密码登录</strong>
                                 {% endif %}
                             </div>
 
@@ -670,7 +670,7 @@
                                         </span>
                                         <div id="currentPasswordFeedback" class="invalid-feedback"></div>
                                     </div>
-                                    <div class="form-text">如果首次设置密码或认证被禁用时更改密码，则无需当前密码。</div>
+                                    <div class="form-text">首次设置密码时无需输入当前密码。</div>
                                 </div>
                                 <div class="mb-3">
                                     <label for="newPassword" class="form-label">新密码</label>
@@ -1786,18 +1786,14 @@ X-Custom: value"></textarea>
                 }
 
                 // 切换规则：
-                // - 若系统已启用(initialAuthConfig.enable=true)，切到关隐藏；再切回开立即显示（无需保存）
-                // - 若系统未启用(initialAuthConfig.enable=false)，首次切到开不显示，需保存并登录后再显示
+                // - 打开开关即显示账号/密码区域，首次启用时也一样（可直接设置密码，留空则由后端当场生成并打印到日志）
+                // - 关闭开关时隐藏
                 enableAuthCheckbox.addEventListener('change', function () {
                     if (!this.checked) {
                         authFields.classList.add('d-none');
                         return;
                     }
-                    if (initialAuthConfig && initialAuthConfig.enable) {
-                        authFields.classList.remove('d-none');
-                    } else {
-                        authFields.classList.add('d-none');
-                    }
+                    authFields.classList.remove('d-none');
                 });
             }
             

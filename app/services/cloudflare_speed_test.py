@@ -45,40 +45,43 @@ class CloudflareSpeedTestService:
         
     def _find_cloudflare_st(self) -> str:
         """查找CloudflareSpeedTest可执行文件，支持架构自适应"""
-        # 获取架构目录
         arch_dir = self._get_arch_dir()
         machine = platform.machine().lower()
         logger.info(f"检测到架构: {machine}, 使用目录: {arch_dir}")
-        
-        # 可能的路径，按架构自适应
+
+        # 可能的路径，按架构自适应（按优先级排列，一旦命中即停止查找）
         possible_paths = [
             # 在当前目录查找
             os.path.join(self.base_dir, "cfst"),
             os.path.join(self.base_dir, arch_dir, "cfst"),
-            
-            # 在系统目录查找
+
+            # 在系统目录查找（Docker 镜像由 Dockerfile 安装到 /usr/local/bin/cfst）
             "/usr/local/bin/cfst",
             "/usr/bin/cfst",
-            
+
             # 在Docker环境中的路径
             "/app/cfst",
-            f"/app/{arch_dir}/cfst"
+            f"/app/{arch_dir}/cfst",
         ]
-        
-        # 输出所有可能的路径方便调试
-        logger.info("正在查找CloudflareSpeedTest可执行文件...")
+
         for path in possible_paths:
-            logger.info(f"检查路径: {path} - {'存在' if os.path.exists(path) else '不存在'}")
-        
-        # 查找可执行文件
-        for path in possible_paths:
-            if os.path.exists(path) and os.access(path, os.X_OK):
-                logger.info(f"找到可执行的CloudflareSpeedTest: {path}")
+            if not os.path.exists(path):
+                continue
+            if os.access(path, os.X_OK):
+                logger.info(f"使用CloudflareSpeedTest: {path}")
                 return path
-                
-        # 如果没有找到可执行文件，使用架构自适应的默认路径并发出警告
+            # 文件存在但缺少可执行权限（常见于从压缩包/Windows 解压到仓库），当场修复后使用
+            logger.warning(f"cfst 文件存在但缺少可执行权限，正在修复: {path}")
+            try:
+                os.chmod(path, 0o755)
+                logger.info(f"已修复可执行权限: {path}")
+                return path
+            except OSError as e:
+                logger.error(f"修复可执行权限失败: {path} -> {e}")
+
+        # 一个都不存在：给出默认路径让后续调用报明确错误
         default_path = f"./{arch_dir}/cfst"
-        logger.warning(f"未找到CloudflareSpeedTest可执行文件，将使用默认路径 {default_path}")
+        logger.error(f"未找到CloudflareSpeedTest可执行文件，将尝试默认路径 {default_path}")
         return default_path
         
     def update_config(self, config: Dict[str, Any]):
