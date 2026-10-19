@@ -819,11 +819,12 @@
                         <div class="flex-grow-1">
                             <p class="mb-0" id="successMessage">操作已成功完成</p>
                             <div id="successNote" class="mt-2 text-muted small"></div>
+                            <div id="successCountdown" class="mt-2 fw-semibold text-success small d-none"></div>
                         </div>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-success" data-bs-dismiss="modal">
+                    <button type="button" id="successModalConfirmBtn" class="btn btn-success" data-bs-dismiss="modal">
                         <i class="bi bi-check-lg me-1"></i>确定
                     </button>
                 </div>
@@ -1519,7 +1520,18 @@ X-Custom: value"></textarea>
         }
 
         // 显示成功模态框
-        function showSuccessModal(title, message, note = '') {
+        // options.countdown: 秒数。给出时显示倒计时，倒计时归零或用户点「确定」都会立即执行
+        //                    options.onDone（通常是刷新页面）。不传则保持原有纯提示行为。
+        let _successModalCountdownTimer = null;
+
+        function _clearSuccessCountdown() {
+            if (_successModalCountdownTimer) {
+                clearInterval(_successModalCountdownTimer);
+                _successModalCountdownTimer = null;
+            }
+        }
+
+        function showSuccessModal(title, message, note = '', options = {}) {
             document.getElementById('successModalLabel').innerHTML = `<i class="bi bi-check-circle-fill me-2"></i>${title}`;
             document.getElementById('successMessage').textContent = message;
             
@@ -1530,10 +1542,55 @@ X-Custom: value"></textarea>
             } else {
                 noteEl.style.display = 'none';
             }
-            
-            const successModal = new bootstrap.Modal(document.getElementById('successModal'));
+
+            const { countdown, onDone, confirmText } = options;
+            const confirmBtn = document.getElementById('successModalConfirmBtn');
+            const countdownEl = document.getElementById('successCountdown');
+            const successModalEl = document.getElementById('successModal');
+
+            // 清理上一次可能残留的倒计时
+            _clearSuccessCountdown();
+
+            if (typeof countdown === 'number' && countdown > 0 && typeof onDone === 'function') {
+                let remaining = countdown;
+
+                confirmBtn.innerHTML = `<i class="bi bi-arrow-clockwise me-1"></i>${confirmText || '立即刷新'}`;
+                countdownEl.classList.remove('d-none');
+                countdownEl.textContent = `${remaining} 秒后自动刷新…`;
+
+                // 点「确定」＝ 立即执行，不再等倒计时
+                confirmBtn.onclick = () => {
+                    _clearSuccessCountdown();
+                    onDone();
+                };
+
+                _successModalCountdownTimer = setInterval(() => {
+                    remaining -= 1;
+                    if (remaining <= 0) {
+                        _clearSuccessCountdown();
+                        onDone();
+                        return;
+                    }
+                    countdownEl.textContent = `${remaining} 秒后自动刷新…`;
+                }, 1000);
+            } else {
+                confirmBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>确定';
+                confirmBtn.onclick = null;
+                countdownEl.classList.add('d-none');
+                countdownEl.textContent = '';
+            }
+
+            const successModal = bootstrap.Modal.getOrCreateInstance(successModalEl);
             successModal.show();
         }
+
+        // 关闭弹窗时清掉倒计时，避免弹窗已关闭但定时器仍在运行
+        document.addEventListener('DOMContentLoaded', function () {
+            const successModalEl = document.getElementById('successModal');
+            if (successModalEl) {
+                successModalEl.addEventListener('hidden.bs.modal', _clearSuccessCountdown);
+            }
+        });
 
         // 获取错误建议信息
         function getErrorSuggestion(errorMessage) {
@@ -1686,8 +1743,13 @@ X-Custom: value"></textarea>
                         // 先隐藏区域，等待刷新/登录后由 initialAuthConfig 控制显示
                         const authFields = document.getElementById('authFields');
                         authFields && authFields.classList.add('d-none');
-                        showSuccessModal('设置更新成功', successMsg, '页面将在10秒后自动刷新以应用新设置。');
-                        setTimeout(() => window.location.reload(), 10000);
+                        // 倒计时结束或用户点「确定」都会立即刷新；用 location.replace 避免
+                        // 刷新后浏览器「后退」回到一个已登出的旧页面。
+                        showSuccessModal('设置更新成功', successMsg, '', {
+                            countdown: 10,
+                            confirmText: '立即刷新',
+                            onDone: () => window.location.replace(window.location.pathname)
+                        });
                     } else {
                         showSuccessModal('设置更新成功', successMsg);
                     }
