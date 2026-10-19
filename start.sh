@@ -6,14 +6,8 @@ log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"
 }
 
-# Debug: Print initial APP_PORT value from the environment
-log "DEBUG: Initial ENV APP_PORT: -->${APP_PORT}<--"
-
 # 设置默认端口，如果APP_PORT环境变量未设置，则使用23333
 APP_PORT=${APP_PORT:-23333}
-
-# Debug: Print APP_PORT value after script's default assignment
-log "DEBUG: Script APP_PORT after default: -->${APP_PORT}<--"
 
 log "PT-Accelerator 启动脚本开始运行..."
 
@@ -32,11 +26,15 @@ if [ ! -w "/etc/hosts" ]; then
     log "请使用 sudo 或者 root 权限运行，或者确保当前用户有写入 /etc/hosts 的权限"
 fi
 
-# 确保CloudflareST有执行权限
-if [ -f "cfst_linux_amd64/cfst" ]; then
+# 确保CloudflareST有执行权限（按架构选择，arm64 设备上不存在 amd64 目录）
+ARCH_DIR="cfst_linux_amd64"
+if [ "$(uname -m)" = "aarch64" ] || [ "$(uname -m)" = "arm64" ]; then
+    ARCH_DIR="cfst_linux_arm64"
+fi
+if [ -f "${ARCH_DIR}/cfst" ]; then
     log "设置 cfst 可执行权限..."
-    chmod +x cfst_linux_amd64/cfst
-    chmod +x cfst_linux_amd64/cfst_hosts.sh
+    chmod +x "${ARCH_DIR}/cfst"
+    chmod +x "${ARCH_DIR}/cfst_hosts.sh"
 else
     log "警告: 未找到 cfst 文件，IP优选功能可能不可用"
 fi
@@ -45,16 +43,15 @@ fi
 if [ ! -f "nowip_hosts.txt" ]; then
     log "创建 nowip_hosts.txt 文件..."
     echo "104.16.91.215" > nowip_hosts.txt
-    
-# 检查cfst_linux_amd64目录下是否也需要此文件
-if [ -d "cfst_linux_amd64" ] && [ ! -f "cfst_linux_amd64/nowip_hosts.txt" ]; then
-    cp nowip_hosts.txt cfst_linux_amd64/nowip_hosts.txt
 fi
+
+# 检查架构目录下是否也需要此文件
+if [ -d "${ARCH_DIR}" ] && [ ! -f "${ARCH_DIR}/nowip_hosts.txt" ]; then
+    cp nowip_hosts.txt "${ARCH_DIR}/nowip_hosts.txt"
 fi
 
 # 启动应用
-log "启动应用..."
-log "DEBUG: APP_PORT just before uvicorn: -->${APP_PORT}<--" # Added debug log
+log "启动应用，监听端口 ${APP_PORT}..."
 python -m uvicorn app.main:app --host 0.0.0.0 --port "${APP_PORT}"
 
 # 注意：此行永远不会执行，因为uvicorn会保持运行状态

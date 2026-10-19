@@ -1,16 +1,35 @@
+# PT-Accelerator 运行时依赖
+#
+# 约定：
+#   - 全部固定版本（==），否则重建镜像可能拉到不兼容的新版本
+#   - 升级依赖时请同时在本地（Python 3.12）与镜像（Python 3.11）中验证
+#   - bcrypt 必须锁在 4.0.x：4.1+ 移除了 __about__，passlib 1.7.4 会打印
+#     "(trapped) error reading bcrypt version" 警告
+
+# --- Web 框架 ---
 fastapi==0.104.1
 uvicorn==0.23.2
-aiohttp==3.9.1
-apscheduler==3.10.4
-python-hosts==1.0.3
-python-multipart==0.0.6
 jinja2==3.1.2
-pyyaml==6.0.1
+python-multipart==0.0.6
+itsdangerous==2.2.0
+
+# --- 任务调度 ---
+apscheduler==3.10.4
+croniter==6.2.4
+
+# --- 网络请求 ---
+aiohttp==3.9.1
 requests==2.31.0
-transmission-rpc==2.0.0
-croniter
+urllib3==2.8.0
 dnspython==2.4.2
-urllib3>=1.26.0
+
+# --- 数据与配置 ---
+pyyaml==6.0.1
+python-hosts==1.0.3
+
+# --- 下载器客户端 ---
+transmission-rpc==2.0.0
+
+# --- 登录认证 ---
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
-itsdangerous
