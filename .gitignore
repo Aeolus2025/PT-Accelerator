@@ -106,8 +106,14 @@ venv.bak/
 # Project specific
 logs/
 config/*.yaml
+# 运行时自动生成（cfst 的 IP 列表与上次最优 IP），本地直接跑 app 会被写出来
+ip.txt
+nowip_hosts.txt
 *.csv
 .DS_Store
 .idea/
 # 本地开发进度文档（不纳入版本控制）
 TODO.md
+
+# 本地测试脚本（不纳入版本控制）
+tests/

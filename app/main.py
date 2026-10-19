@@ -4,6 +4,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from pathlib import Path
 import os
+import copy
 import logging
 import yaml
 import uvicorn
@@ -42,6 +43,26 @@ os.makedirs("config", exist_ok=True)
 # 初始化配置
 CONFIG_PATH = "config/config.yaml"
 DEFAULT_CLOUDFLARE_IP = "104.16.91.215"
+
+# 预装的外部 hosts 源：全部默认关闭，用户可在 UI「Hosts源」页按需勾选启用。
+# 入选标准（2026-10-19 实测）：源站可直连、响应内容含真实域名条目、不依赖第三方加速代理。
+# 被排除的上游默认源及原因：
+#   - TMDB（Gitee源）gitee.com/nirvanaalex/hosts：源已停更，仅返回注释头和 localhost 条目，解析出 0 条
+#   - TMDB（GitHub源1/2）、GitHub&TMDB（GitHub源3）、GitHub520：经 ghfast.top 第三方代理中转，
+#     代理随时可能停摆；确有需要可自行在 UI 手动添加，并自行评估代理可靠性
+HOSTS_SOURCE_PRESETS = [
+    {
+        "name": "GitHub（Gitlab源）",
+        "url": "https://gitlab.com/ineo6/hosts/-/raw/master/next-hosts",
+        "enable": False
+    },
+    {
+        "name": "GitHub（Gitee源）",
+        "url": "https://gitee.com/godfather1103/github-hosts/raw/master/hosts",
+        "enable": False
+    }
+]
+
 DEFAULT_CONFIG = {
     "cloudflare": {
         "enable": True,
@@ -58,43 +79,9 @@ DEFAULT_CONFIG = {
             "ip": DEFAULT_CLOUDFLARE_IP
         }
     ],
-    "hosts_sources": [
-        {
-            "name": "GitHub（Gitlab源）",
-            "url": "https://gitlab.com/ineo6/hosts/-/raw/master/next-hosts",
-            "enable": True
-        },
-        {
-            "name": "GitHub（Gitee源）",
-            "url": "https://gitee.com/godfather1103/github-hosts/raw/master/hosts",
-            "enable": True
-        },
-        {
-            "name": "TMDB（Gitee源）",
-            "url": "https://gitee.com/nirvanaalex/hosts/raw/master/hosts",
-            "enable": True
-        },
-        {
-            "name": "TMDB（GitHub源1）",
-            "url": "https://ghfast.top/https://raw.githubusercontent.com/cnwikee/CheckTMDB/refs/heads/main/Tmdb_host_ipv4",
-            "enable": True
-        },
-        {
-            "name": "TMDB（GitHub源2）",
-            "url": "https://ghfast.top/https://raw.githubusercontent.com/ChenXinBest/hosts_check/refs/heads/master/hosts.txt",
-            "enable": True
-        },
-        {
-            "name": "GitHub&TMDB（GitHub源3）",
-            "url": "https://ghfast.top/https://raw.githubusercontent.com/kekylin/hosts/main/hosts",
-            "enable": True
-        },
-        {
-            "name": "GitHub520",
-            "url": "https://ghfast.top/https://raw.githubusercontent.com/521xueweihan/GitHub520/refs/heads/main/hosts",
-            "enable": True
-        }
-    ],
+    # 外部 hosts 源预装但全部关闭：新部署不会生成 MergedHosts，用户需在 UI「Hosts源」页手动勾选启用。
+    # 清单见下方 HOSTS_SOURCE_PRESETS（深拷贝，避免运行时改动污染常量）。
+    "hosts_sources": [dict(s) for s in HOSTS_SOURCE_PRESETS],
     "torrent_clients": [
         {
             "id": "qb_default",
@@ -128,7 +115,6 @@ DEFAULT_CONFIG = {
     }
 }
 
-
 # 创建nowip_hosts.txt文件，确保cfst_hosts.sh脚本能正常运行
 def create_nowip_file():
     # 检查文件是否存在
@@ -157,7 +143,8 @@ def load_config():
             if not DEFAULT_CONFIG["auth"].get("secret_key"):
                 DEFAULT_CONFIG["auth"]["secret_key"] = secrets.token_hex(32)
             yaml.dump(DEFAULT_CONFIG, f, default_flow_style=False, allow_unicode=True)
-        current_config = DEFAULT_CONFIG
+        # 深拷贝：运行时对 config 的修改（增删 tracker / hosts_sources 等）不能污染 DEFAULT_CONFIG
+        current_config = copy.deepcopy(DEFAULT_CONFIG)
     else:
         # 读取配置：UTF-8优先，回退GBK/GB18030
         try:

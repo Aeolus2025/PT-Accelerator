@@ -385,9 +385,9 @@ class HostsManager:
                     source_entries_map.setdefault("HistoryIPs", []).append(f"{ip}\t{domain}")
                     current_domains.add(domain)
             # 4.5 智能兜底：对比备份，找出本次丢失的域名
-            lost_domains = backup_domains - current_domains
-            # 获取已禁用的tracker域名
+            #     无启用源时直接跳过兜底，避免残留域名被从备份里捡回来
             disabled_domains = self._get_disabled_tracker_domains()
+            lost_domains = (backup_domains - current_domains) if merged_enabled else set()
             
             for lost_domain in lost_domains:
                 # 跳过已禁用的域名
@@ -466,7 +466,7 @@ class HostsManager:
             
             # 添加合并后的hosts源section（保持与1.1.0版本兼容的名称）
             if merged_entries:
-                if not self._is_merged_hosts_enabled():
+                if not merged_enabled:
                     # 防御：没有任何启用的 hosts 源时不写 MergedHosts 段（不落盘）
                     logger.info(f"[MergedHosts] 无启用源，丢弃 {len(merged_entries)} 条合并条目")
                 else:
@@ -491,8 +491,8 @@ class HostsManager:
             # 9. 合并完成后更新备份
             if merged_enabled:
                 self._save_merged_hosts_backup(merged_dict)
-            elif merged_dict:
-                logger.info(f"[MergedHosts] 无启用源，不写入备份（本次 {len(merged_dict)} 条）")
+            else:
+                # 无启用源：备份必须清空，否则下次"智能兜底"会把残留域名捡回来
                 self._save_merged_hosts_backup({})
             self.task_status = {"status": "done", "message": f"已完成hosts更新，添加了{total_entries}条记录"}
             self.task_running = False
@@ -767,7 +767,7 @@ class HostsManager:
                         continue
                     domain_ip_candidates.setdefault(domain, set()).add(ip)
                     current_domains.add(domain)
-            lost_domains = backup_domains - current_domains
+            lost_domains = backup_domains - current_domains if merged_enabled else set()
             for lost_domain in lost_domains:
                 # 没有启用任何 hosts 源时不做兜底（防止残留域名被重新捡回）
                 if not self._can_keep_lost_domain(lost_domain):
@@ -809,7 +809,7 @@ class HostsManager:
             logger.info("生成合并后的最终hosts条目")
             merged_entries = [f"{ip}\t{domain}" for domain, (ip, _) in domain_ip_latency.items()]
             if merged_entries:
-                if not self._is_merged_hosts_enabled():
+                if not merged_enabled:
                     # 防御：没有任何启用的 hosts 源时不写 MergedHosts 段（不落盘）
                     logger.info(f"[MergedHosts] 无启用源，丢弃 {len(merged_entries)} 条合并条目")
                 else:
@@ -827,8 +827,8 @@ class HostsManager:
                 logger.info(line)
             if merged_enabled:
                 self._save_merged_hosts_backup(merged_dict)
-            elif merged_dict:
-                logger.info(f"[MergedHosts] 无启用源，不写入备份（本次 {len(merged_dict)} 条）")
+            else:
+                # 无启用源：备份必须清空，否则下次"智能兜底"会把残留域名捡回来
                 self._save_merged_hosts_backup({})
             self.task_status = {"status": "done", "message": f"Cloudflare优选完成！IP: {best_ip}，已更新 {len(filtered_trackers) if isinstance(filtered_trackers, list) else 0} 个Tracker和 {total_entries} 条hosts记录"}
             self.task_running = False
