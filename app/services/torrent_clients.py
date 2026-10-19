@@ -9,12 +9,13 @@ logger = logging.getLogger(__name__)
 
 class TorrentClientBase:
     """下载器客户端基类"""
-    def __init__(self, host: str, port: int, username: str, password: str, use_https: bool = False):
+    def __init__(self, host: str, port: int, username: str, password: str, use_https: bool = False, api_key: Optional[str] = None):
         self.host = host
         self.port = port
         self.username = username
         self.password = password
         self.use_https = use_https
+        self.api_key = (api_key or "").strip()
         self.base_url = f"{'https' if use_https else 'http'}://{host}:{port}"
         self.session = requests.Session()
         logger.debug(f"初始化下载器客户端: {self.__class__.__name__}, URL: {self.base_url}")
@@ -29,16 +30,30 @@ class TorrentClientBase:
 
 
 class QBittorrentClient(TorrentClientBase):
-    """qBittorrent客户端 - 使用直接API调用，自动检测SID cookie"""
-    def __init__(self, host: str, port: int, username: str, password: str, use_https: bool = False):
-        super().__init__(host, port, username, password, use_https)
+    """qBittorrent客户端 - 支持 API Key(5.2+) 与 用户名密码/SID 两种认证"""
+    def __init__(self, host: str, port: int, username: str, password: str, use_https: bool = False, api_key: Optional[str] = None):
+        super().__init__(host, port, username, password, use_https, api_key)
         logger.info(f"初始化qBittorrent客户端: {host}:{port}, 使用HTTPS: {use_https}")
         self.api_url = f"{self.base_url}/api/v2"
         logger.debug(f"qBittorrent API URL: {self.api_url}")
-        logger.debug(f"qBittorrent认证信息: 用户名: {username}, 密码长度: {len(password) if password else 0}")
+        if self.api_key:
+            # 不打印密钥本身，只打印长度
+            logger.info(f"qBittorrent认证方式: API Key(长度 {len(self.api_key)})")
+        else:
+            logger.info(f"qBittorrent认证方式: 用户名/密码, 用户名: {username}, 密码长度: {len(password) if password else 0}")
+    
+    def _apply_auth_headers(self) -> None:
+        """API Key 模式下为会话注入 Authorization: Bearer 头"""
+        if self.api_key:
+            self.session.headers['Authorization'] = f'Bearer {self.api_key}'
     
     def login(self) -> bool:
-        """登录qBittorrent WebUI，强制检测SID cookie"""
+        """登录qBittorrent WebUI：有 API Key 时跳过 /auth/login，否则走 SID 流程"""
+        if self.api_key:
+            # API Key 模式下无需登录，认证头已由 _apply_auth_headers 注入
+            self._apply_auth_headers()
+            logger.info("qBittorrent 使用 API Key 认证，跳过 /auth/login")
+            return True
         try:
             login_url = f"{self.api_url}/auth/login"
             logger.debug(f"尝试登录qBittorrent: {login_url}")
@@ -50,6 +65,10 @@ class QBittorrentClient(TorrentClientBase):
             if response.status_code == 200 and response.text.lower().startswith('ok') and sid:
                 logger.info(f"qBittorrent登录成功，SID={sid}")
                 return True
+            elif response.status_code == 403:
+                # 5.2+ 在部分配置下会直接拒绝密码登录，提示改用 API Key
+                logger.error(f"qBittorrent登录被拒绝(403): 该版本(可能 >= 5.2)可能已禁用密码登录，请改用 API 密钥。响应='{response.text}'")
+                return False
             else:
                 logger.error(f"qBittorrent登录失败: 状态码={response.status_code}, 响应='{response.text}', SID={sid}")
                 return False
@@ -64,14 +83,18 @@ class QBittorrentClient(TorrentClientBase):
         try:
             logger.info(f"测试qBittorrent连接: {self.host}:{self.port}")
             if not self.login():
-                sid = self.session.cookies.get('SID')
-                logger.error(f"登录失败后SID: {sid}")
+                if self.api_key:
+                    return {
+                        "success": False,
+                        "message": "连接失败，请检查主机地址、端口和 API 密钥是否正确"
+                    }
                 return {
                     "success": False,
-                    "message": "登录失败，请检查主机地址、端口、用户名和密码"
+                    "message": "登录失败，请检查主机地址、端口、用户名和密码（qBittorrent 5.2+ 可能需要改用 API 密钥）"
                 }
+            # API Key 模式下没有 SID cookie，属正常
             sid = self.session.cookies.get('SID')
-            logger.info(f"登录成功后SID: {sid}")
+            logger.info(f"登录成功，SID={sid if sid else '(API Key 模式，无 SID)'}")
             version_url = f"{self.api_url}/app/version"
             logger.debug(f"获取qBittorrent版本信息: {version_url}, 当前cookie: {self.session.cookies}")
             response = self.session.get(version_url, timeout=10)
@@ -90,11 +113,16 @@ class QBittorrentClient(TorrentClientBase):
                     "api_version": api_version
                 }
             else:
-                error_msg = f"获取qBittorrent版本信息失败: 状态码={response.status_code}, 响应='{response.text}', cookie={self.session.cookies}"
-                logger.error(error_msg)
+                logger.error(f"获取qBittorrent版本信息失败: 状态码={response.status_code}, 响应='{response.text}', cookie={self.session.cookies}")
+                if response.status_code == 403 and self.api_key:
+                    message = "API 密钥无效或已过期，请在 qBittorrent「选项 → WebUI」中重新生成 API 密钥"
+                elif response.status_code == 403:
+                    message = "认证失败(403)，请检查用户名和密码；若为 qBittorrent 5.2+ 请改用 API 密钥"
+                else:
+                    message = f"获取qBittorrent版本信息失败: 状态码={response.status_code}"
                 return {
                     "success": False,
-                    "message": error_msg
+                    "message": message
                 }
         except requests.exceptions.Timeout:
             error_msg = f"qBittorrent连接超时: {self.host}:{self.port}"
@@ -123,11 +151,11 @@ class QBittorrentClient(TorrentClientBase):
         """获取所有种子的Tracker列表，登录后强制检查SID并打印cookie"""
         try:
             if not self.login():
-                sid = self.session.cookies.get('SID')
-                logger.error(f"获取Tracker失败: 登录失败，SID={sid}")
+                logger.error("获取Tracker失败: 登录失败")
                 return []
+            # API Key 模式下没有 SID cookie，属正常
             sid = self.session.cookies.get('SID')
-            logger.info(f"获取Tracker时SID: {sid}")
+            logger.info(f"获取Tracker时 SID={sid if sid else '(API Key 模式，无 SID)'}")
             torrents_url = f"{self.api_url}/torrents/info"
             response = self.session.get(torrents_url, timeout=15)
             logger.debug(f"获取种子列表响应: 状态码={response.status_code}, cookie={self.session.cookies}")
@@ -355,7 +383,8 @@ class TorrentClientManager:
                         port=client_config.get("port", 8080),
                         username=client_config.get("username", ""),
                         password=client_config.get("password", ""),
-                        use_https=client_config.get("use_https", False)
+                        use_https=client_config.get("use_https", False),
+                        api_key=client_config.get("api_key", "")
                     )
                 elif client_type == "transmission":
                     client = TransmissionClient(
@@ -424,7 +453,8 @@ class TorrentClientManager:
                     port=client_config.get("port", 8080),
                     username=client_config.get("username", ""),
                     password=client_config.get("password", ""),
-                    use_https=client_config.get("use_https", False)
+                    use_https=client_config.get("use_https", False),
+                    api_key=client_config.get("api_key", "")
                 )
             elif client_type == "transmission":
                 client = TransmissionClient(

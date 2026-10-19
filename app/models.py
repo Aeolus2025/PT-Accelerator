@@ -30,6 +30,7 @@ class TorrentClientConfig(BaseModel):
     password: Optional[str] = None
     use_https: bool = False
     path: Optional[str] = "/transmission/rpc"  # Transmission特有字段
+    api_key: Optional[str] = None  # qBittorrent 5.2+ WebUI API Key，优先于用户名/密码
     enable: bool = True
 
 class BatchAddDomainsRequest(BaseModel):

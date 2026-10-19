@@ -1026,7 +1026,7 @@ async def get_torrent_client_types():
                 "type": "qbittorrent",
                 "name": "qBittorrent",
                 "default_port": 8080,
-                "fields": ["host", "port", "username", "password", "use_https"]
+                "fields": ["host", "port", "username", "password", "api_key", "use_https"]
             },
             {
                 "type": "transmission",

@@ -91,6 +91,7 @@ DEFAULT_CONFIG = {
             "port": 8080,
             "username": "",
             "password": "",
+            "api_key": "",
             "use_https": False,
             "enable": False
         },

@@ -143,6 +143,12 @@ function createClientCard(client, index) {
                         <small class="text-muted">用户名:</small><br>
                         <span>${client.username || '(未设置)'}</span>
                     </div>
+                    ${client.type === 'qbittorrent' ? `
+                    <div class="col-md-6 mt-2">
+                        <small class="text-muted">认证方式:</small><br>
+                        <span>${client.api_key ? '<span class="badge bg-info">API 密钥</span>' : '用户名/密码'}</span>
+                    </div>
+                    ` : ''}
                     ${client.type === 'transmission' ? `
                     <div class="col-md-6 mt-2">
                         <small class="text-muted">RPC路径:</small><br>
@@ -240,6 +246,14 @@ function showClientModal(clientId = null) {
                                         <label for="client-password">密码</label>
                                     </div>
                                 </div>
+                                <div class="col-md-6" id="qbittorrent-api-key-group" style="display: none;">
+                                    <div class="form-floating mb-3">
+                                        <input type="password" class="form-control" id="client-api-key" placeholder="API 密钥"
+                                               value="${client ? (client.api_key || '') : ''}">
+                                        <label for="client-api-key">API 密钥 (qB 5.2+)</label>
+                                        <div class="form-text">填写后优先使用 API 密钥，可留空改用用户名/密码</div>
+                                    </div>
+                                </div>
                                 <div class="col-md-6" id="transmission-path-group" style="display: none;">
                                     <div class="form-floating mb-3">
                                         <input type="text" class="form-control" id="client-path" placeholder="RPC路径"
@@ -325,6 +339,13 @@ function updateClientFormFields() {
         } else {
             $('#transmission-path-group').hide();
         }
+        
+        // 显示/隐藏qBittorrent的API密钥字段
+        if (selectedType === 'qbittorrent') {
+            $('#qbittorrent-api-key-group').show();
+        } else {
+            $('#qbittorrent-api-key-group').hide();
+        }
     }
 }
 
@@ -378,6 +399,7 @@ function getClientConfigFromModal() {
         username: $('#client-username').val().trim(),
         password: $('#client-password').val(),
         use_https: $('#client-https').prop('checked'),
+        api_key: $('#client-api-key').val() ? $('#client-api-key').val().trim() : '',
         path: $('#client-path').val().trim() || '/transmission/rpc',
         enable: $('#client-enable').prop('checked')
     };
