@@ -46,6 +46,8 @@
 - **多架构支持**：`cfst_linux_amd64/` 与 `cfst_linux_arm64/` 双架构二进制，`Dockerfile` 按 `TARGETARCH` 自动选取
 - **CI 推送到 GHCR**：使用 `GITHUB_TOKEN`，无需自建 secret；`main` 分支 push 只做构建验证，`tag` 或手动触发才推送
 - **qBittorrent 5.2+ 支持**：新增 WebUI API 密钥认证（`Authorization: Bearer`），优先于用户名/密码；5.2 以下版本账号密码登录行为不变
+- **外部 hosts 源默认关闭**：自 `2.1.0` 起预装 2 条源且默认不启用，新部署不再自动生成 `MergedHosts`；**已有配置不受影响**，如需相同行为请在「Hosts源」页取消勾选或删除
+- **登录认证首次启用即生效**：开启后当场生成初始密码并打印到日志，无需重启容器
 
 > 从上游镜像迁移到本镜像时，`./config`、`./logs` 目录可直接复用，无需重建数据。
 
@@ -342,59 +344,16 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port ${APP_PORT:-23333}
 
 ---
 
-## 版本更新日志
-
-### 最新版本 (v2.1.0)
-
-本 fork 首个独立发布版本，焦点是**正确性修复**与**qBittorrent 新版兼容**：
-
-- 🐛 **修复关闭 Hosts 源后仍生成 MergedHosts**：此前禁用或清空全部 Hosts 源后，程序仍会写入外部 Hosts 段落，导致系统 hosts 被长期污染。现两条更新路径（手动更新 / Cloudflare 优选后更新）均会跳过外部段，并同步清空备份，不再把旧域名"捡"回来
-- 🐛 **修复配置默认值被运行时污染**：无配置文件启动时直接引用模块级默认配置对象，UI 上的增删会改写默认值本身，影响同进程后续逻辑。现改为深拷贝
-- ✨ **Hosts 源精简预装并默认关闭**：预装清单从 7 条精简为 2 条可直连的常用源，且全部默认关闭；新部署默认只写 PT 站点段落，需要外部加速的用户在「Hosts源」页手动勾选
-- ✨ **qBittorrent 5.2+ API Key 认证**：支持在下载器配置中填写 API 密钥（`Authorization: Bearer`），优先于用户名/密码；旧版 qB 仍可继续使用账号密码，两种方式均已验证
-- ⬆️ **cfst 升级至 v2.3.5**：内置双架构二进制同步更新（上游优化连接释放速度）
-
-> 自 v2.1.0 起本 fork 独立演进，版本号不再与上游对齐。
-
-### 上一版本 (v2.0.5)
-
-- ✅ **任务执行时间监控**：添加任务执行时间日志，便于排查和优化
-- ✅ **架构自适应支持**：完美支持AMD64和ARM64架构，自动检测并选择对应的CloudflareSpeedTest文件
-- ✅ **Docker构建优化**：优化Dockerfile，支持架构自适应构建，减小镜像大小
-- ✅ **CI/CD自动化**：集成GitHub Actions，支持自动构建和手动自定义版本发布
-- ✅ **多架构镜像**：提供AMD64和ARM64架构的Docker镜像，支持树莓派等ARM设备
-- ✅ **文件管理优化**：添加.gitignore规则，优化版本控制
-- ✅ **多通知渠道**：支持多种通知方式，及时获取系统状态和任务完成通知
-- ✅ **Hosts文件编辑**：支持在线编辑Hosts文件，实时预览和保存修改
-- ✅ **日志管理**：支持清空日志功能，保持系统日志整洁
-- ✅ **移动端适配**：完美适配移动端显示，支持手机和平板设备访问
-- ✅ **Hosts结构保护**：修复清空Hosts功能，保护系统原有Hosts文件头结构
-- ✅ **版本显示**：Web界面显示当前版本号，便于版本管理
-
-### 版本历史
-
-- **v2.1.0** (2026-10-19) - 修复关闭Hosts源后仍生成/残留MergedHosts段；Hosts源改为精简预装并默认关闭；配置默认值隔离；新增qBittorrent 5.2+ API Key认证；cfst升级至v2.3.5
-- **v2.0.5** (2025-11-17) - 修复企业微信App加载渠道配置编辑失败问题，新增转发代理配置
-- **v2.0.4** (2025-11-16) - 修复定时任务跳过执行问题、修复多通知渠道重复发送问题
-- **v2.0.3** (2025-10-12) - 修复通知渠道关闭状态问题
-- **v2.0.2** (2025-10-11) - 添加Media Saber通知渠道
-- **v2.0.1** (2025-10-11) - 修复自定义通知配置问题
-- **v2.0.0** (2025-09-25) - 架构自适应支持、多通知渠道、移动端适配、Hosts结构保护
-- **v1.0.0** (2025-04-29) - 初始版本发布
-
-### 主要功能
-
-- ✅ **Cloudflare IP优选**：自动定时优选全球最快Cloudflare IP
-- ✅ **PT Tracker管理**：批量管理PT站点Tracker
-- ✅ **下载器集成**：支持qBittorrent、Transmission等主流下载器
-- ✅ **Hosts源管理**：多路合并GitHub/TMDB等Hosts源
-- ✅ **Web界面**：现代化Web界面，支持实时配置和监控
-
 ---
 
 ## 许可证
 
-MIT License
+本项目主体遵循 **MIT License**，完整文本见 [LICENSE](LICENSE)。
+
+- 原始版权：Copyright (c) 2025 [eternalcurse](https://github.com/eternalcurse/PT-Accelerator)
+- 本 fork 修改：Copyright (c) 2026 [Aeolus2025](https://github.com/Aeolus2025/PT-Accelerator)
+
+**第三方组件**：本项目随镜像分发 [`XIU2/CloudflareSpeedTest`](https://github.com/XIU2/CloudflareSpeedTest) 的二进制文件（`cfst_linux_amd64/cfst`、`cfst_linux_arm64/cfst`），该组件遵循 **GPL-3.0**。本项目未修改其源代码，仅以独立可执行文件形式随镜像分发，完整源码可从上述地址获取。前端依赖 Bootstrap / Bootstrap Icons / jQuery 均为 MIT 或 Apache-2.0。
 
 ---
 

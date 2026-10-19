@@ -1,0 +1,35 @@
+MIT License
+
+Copyright (c) 2025 eternalcurse (https://github.com/eternalcurse/PT-Accelerator)
+Copyright (c) 2026 Aeolus2025 (https://github.com/Aeolus2025/PT-Accelerator)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## 第三方组件说明 / Third-Party Components
+
+本项目随镜像分发以下第三方二进制文件，它们遵循各自的许可证：
+
+云雀 CloudflareSpeedTest（`cfst_linux_amd64/cfst`、`cfst_linux_arm64/cfst`、`cfst_hosts.sh`）
+- 项目地址：https://github.com/XIU2/CloudflareSpeedTest
+- 许可证：GPL-3.0
+- 说明：本项目未修改其源代码，仅以独立可执行文件形式随镜像分发。完整源码可从上述地址获取。
+
+前端依赖（Bootstrap / Bootstrap Icons / jQuery）均内置于 `app/static/`，分别遵循 MIT 与 Apache-2.0 许可证。
