@@ -228,6 +228,9 @@ app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), na
 
 # 模板
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+# 将版本号注入 Jinja2 全局，供静态资源版本查询串（?v={{ app_version }}）使用，
+# 避免每次都靠 TemplateResponse 的 context 传递（login.html 有多处渲染点）。
+templates.env.globals["app_version"] = get_version()
 hosts_manager = HostsManager(config)
 cloudflare_service = CloudflareSpeedTestService(config, hosts_manager)
 scheduler_service = SchedulerService(config, cloudflare_service, hosts_manager)

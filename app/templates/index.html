@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PT-Accelerator v{{ version }}</title>
     <link rel="icon" href="/favicon.ico" type="image/x-icon">
-    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/bootstrap-icons.css">
+    <link href="/static/css/bootstrap.min.css?v={{ app_version }}" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/bootstrap-icons.css?v={{ app_version }}">
     <style>
         :root {
             --primary-color: #4361ee;
@@ -1345,10 +1345,10 @@ X-Custom: value"></textarea>
     <!-- Toast容器 -->
     <div class="toast-container position-fixed top-0 end-0 p-3"></div>
     
-    <script src="/static/js/vendor/jquery.min.js"></script>
-    <script src="/static/js/vendor/bootstrap.bundle.min.js"></script>
-    <script src="/static/js/main.js"></script>
-    <script src="/static/js/torrent_clients.js"></script>
+    <script src="/static/js/vendor/jquery.min.js?v={{ app_version }}"></script>
+    <script src="/static/js/vendor/bootstrap.bundle.min.js?v={{ app_version }}"></script>
+    <script src="/static/js/main.js?v={{ app_version }}"></script>
+    <script src="/static/js/torrent_clients.js?v={{ app_version }}"></script>
     <!-- 将后端配置作为纯 JSON 安全嵌入，避免转义与语法高亮器误判 -->
     <script id="app-config" type="application/json">{{ config | tojson | safe }}</script>
     <script>

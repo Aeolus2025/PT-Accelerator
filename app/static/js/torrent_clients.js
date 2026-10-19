@@ -146,10 +146,14 @@ function createClientCard(client, index) {
                     ${client.type === 'qbittorrent' ? `
                     <div class="col-md-6 mt-2">
                         <small class="text-muted">认证方式:</small><br>
-                        <span>${client.api_key ? '<span class="badge bg-info">API 密钥</span>' : '用户名/密码'}</span>
+                        <span>${client.api_key ? '<span class="badge bg-info">API 密钥</span>' : '<span class="badge bg-info">用户名/密码</span>'}</span>
                     </div>
                     ` : ''}
                     ${client.type === 'transmission' ? `
+                    <div class="col-md-6 mt-2">
+                        <small class="text-muted">认证方式:</small><br>
+                        <span>${(client.username || client.password) ? '<span class="badge bg-info">用户名/密码</span>' : '<span class="badge bg-info">免认证</span>'}</span>
+                    </div>
                     <div class="col-md-6 mt-2">
                         <small class="text-muted">RPC路径:</small><br>
                         <span>${client.path || '/transmission/rpc'}</span>
@@ -251,7 +255,7 @@ function showClientModal(clientId = null) {
                                         <input type="password" class="form-control" id="client-api-key" placeholder="API 密钥"
                                                value="${client ? (client.api_key || '') : ''}">
                                         <label for="client-api-key">API 密钥 (qB 5.2+)</label>
-                                        <div class="form-text">填写后优先使用 API 密钥，可留空改用用户名/密码</div>
+                                        <div class="form-text">qB 5.2+ 必填(用户名/密码可留空)；5.2以下留空，使用户名/密码</div>
                                     </div>
                                 </div>
                                 <div class="col-md-6" id="transmission-path-group" style="display: none;">
