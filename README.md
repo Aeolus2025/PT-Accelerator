@@ -40,14 +40,12 @@
 
 支持 `linux/amd64` 与 `linux/arm64`，Docker 会自动选择对应架构。
 
-> **镜像可见性**：GHCR 的 package 默认是 private。若 NAS 不想 `docker login` 拉取，首次构建完成后到 GitHub 的 package 设置里执行 `Change visibility → Public`（只需一次）。
-
 **与上游的差异**：
 
 - **前端依赖本地化**：bootstrap / bootstrap-icons / jquery 全部内置在 `app/static/`，不再依赖 `cdn.jsdelivr.net`（内网或 CDN 不可达时页面样式与交互仍正常）
 - **多架构支持**：`cfst_linux_amd64/` 与 `cfst_linux_arm64/` 双架构二进制，`Dockerfile` 按 `TARGETARCH` 自动选取
 - **CI 推送到 GHCR**：使用 `GITHUB_TOKEN`，无需自建 secret；`main` 分支 push 只做构建验证，`tag` 或手动触发才推送
-- **已知问题**：qBittorrent 5.2+ 的 WebUI API 密钥认证尚未适配（见 TODO §2）
+- **qBittorrent 5.2+ 支持**：新增 WebUI API 密钥认证（`Authorization: Bearer`），优先于用户名/密码；5.2 以下版本账号密码登录行为不变
 
 > 从上游镜像迁移到本镜像时，`./config`、`./logs` 目录可直接复用，无需重建数据。
 
