@@ -19,6 +19,7 @@ from app.services.torrent_clients import TorrentClientManager
 from datetime import datetime
 from app.models import Tracker, HostsSource, CloudflareConfig, TorrentClientConfig, BatchAddDomainsRequest, User, AuthConfig
 from app.utils import notify as notify_module
+from app.utils.file_utils import atomic_write_text
 
 # 从认证模块导入密码处理函数和依赖项
 from app.auth import get_password_hash, verify_password, get_current_user
@@ -26,6 +27,12 @@ from app.auth import get_password_hash, verify_password, get_current_user
 # 配置相关常量
 CONFIG_PATH = "config/config.yaml"
 DEFAULT_CLOUDFLARE_IP = "104.16.91.215"  # 全局默认Cloudflare IP
+
+# 配置写锁（实现在 app/main.py，与 startup_event 共用同一把锁）
+# 延迟导入：app.main 会 import 本模块的路由，模块级直接 import 会造成循环导入
+def _config_write_lock():
+    from app.main import _config_write_lock as _lock
+    return _lock()
 
 # 获取日志记录器
 logger = logging.getLogger(__name__)
@@ -188,8 +195,7 @@ async def update_config(
 
 
         # 保存配置
-        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-            yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
+        atomic_write_text(CONFIG_PATH, yaml.dump(config_data, default_flow_style=False, allow_unicode=True))
         
         # 更新服务配置
         hosts_manager.update_config(config_data)
@@ -217,6 +223,29 @@ async def update_auth_config(
     current_user: User = Depends(get_current_user)
 ):
     """更新认证配置，包括启用/禁用、用户名和密码"""
+    # 整段「读配置 → 改认证字段 → 写回」放在跨进程锁内，避免与 startup_event 的
+    # 密码生成、或其他 worker 的并发保存互相覆盖配置。
+    with _config_write_lock():
+        return await _update_auth_config_locked(
+            request=request,
+            enable_auth=enable_auth,
+            username=username,
+            current_password=current_password,
+            new_password=new_password,
+            confirm_password=confirm_password,
+            current_user=current_user,
+        )
+
+
+async def _update_auth_config_locked(
+    request: Request,
+    enable_auth: bool = None,
+    username: str = None,
+    current_password: str = None,
+    new_password: str = None,
+    confirm_password: str = None,
+    current_user: User = None
+):
     current_config = get_config()
     
     if current_config.get("auth", {}).get("enable") and (not current_user or current_user.username == "guest"):
@@ -290,8 +319,7 @@ async def update_auth_config(
     if config_changed:
         current_config["auth"] = auth_settings
         try:
-            with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-                yaml.dump(current_config, f, default_flow_style=False, allow_unicode=True)
+            atomic_write_text(CONFIG_PATH, yaml.dump(current_config, default_flow_style=False, allow_unicode=True))
             
             # 重新加载全局配置，确保认证配置变更立即生效
             from app.auth import reload_global_config
@@ -456,8 +484,7 @@ async def add_cloudflare_domain(background_tasks: BackgroundTasks, domain: str =
     domains = set(config.get("cloudflare_domains", []))
     domains.add(domain.strip().lower())
     config["cloudflare_domains"] = list(domains)
-    with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-        yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+    atomic_write_text(CONFIG_PATH, yaml.dump(config, default_flow_style=False, allow_unicode=True))
     hosts_manager = get_hosts_manager()
     hosts_manager.update_config(config)
     try:
@@ -475,8 +502,7 @@ async def delete_cloudflare_domain(background_tasks: BackgroundTasks, domain: st
     domains = set(config.get("cloudflare_domains", []))
     domains.discard(domain.strip().lower())
     config["cloudflare_domains"] = list(domains)
-    with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-        yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+    atomic_write_text(CONFIG_PATH, yaml.dump(config, default_flow_style=False, allow_unicode=True))
     hosts_manager = get_hosts_manager()
     hosts_manager.update_config(config)
     try:
@@ -525,8 +551,7 @@ async def add_tracker(
             domains = set(config.get("cloudflare_domains", []))
             domains.add(domain.strip().lower())
             config["cloudflare_domains"] = list(domains)
-        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-            yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+        atomic_write_text(CONFIG_PATH, yaml.dump(config, default_flow_style=False, allow_unicode=True))
         hosts_manager.update_config(config)
         # 统一异步触发hosts更新，避免接口阻塞
         background_tasks.add_task(hosts_manager.update_hosts)
@@ -561,8 +586,7 @@ async def delete_tracker(
         hosts_manager.remove_tracker_domain(domain)
         
         # 保存配置
-        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-            yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+        atomic_write_text(CONFIG_PATH, yaml.dump(config, default_flow_style=False, allow_unicode=True))
         
         # 更新hosts_manager的配置
         hosts_manager.update_config(config)
@@ -609,8 +633,7 @@ async def add_hosts_source(
             if existing["url"] == source["url"]:
                 raise HTTPException(status_code=400, detail="hosts源已存在")
         config["hosts_sources"].append(source)
-        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-            yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+        atomic_write_text(CONFIG_PATH, yaml.dump(config, default_flow_style=False, allow_unicode=True))
         
         # 更新hosts_manager的配置
         hosts_manager.update_config(config)
@@ -644,8 +667,7 @@ async def delete_hosts_source(
         if "hosts_sources" not in config:
             raise HTTPException(status_code=404, detail="hosts源不存在")
         config["hosts_sources"] = [s for s in config["hosts_sources"] if s["url"] != url]
-        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-            yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+        atomic_write_text(CONFIG_PATH, yaml.dump(config, default_flow_style=False, allow_unicode=True))
             
         # 更新hosts_manager的配置
         hosts_manager.update_config(config)
@@ -781,8 +803,7 @@ async def batch_add_domains(
             added.append(domain)
             
         # 保存配置
-        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-            yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+        atomic_write_text(CONFIG_PATH, yaml.dump(config, default_flow_style=False, allow_unicode=True))
             
         # 更新hosts_manager的配置
         hosts_manager.update_config(config)
@@ -928,8 +949,7 @@ async def save_torrent_clients(
         config["torrent_clients"] = clients_config
         
         # 保存配置到文件
-        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-            yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+        atomic_write_text(CONFIG_PATH, yaml.dump(config, default_flow_style=False, allow_unicode=True))
         
         # 更新 TorrentClientManager
         torrent_client_manager = get_torrent_client_manager()
@@ -1022,8 +1042,7 @@ async def delete_torrent_client(
         config["torrent_clients"] = updated_clients
         
         # 保存配置到文件
-        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-            yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+        atomic_write_text(CONFIG_PATH, yaml.dump(config, default_flow_style=False, allow_unicode=True))
         
         # 更新 TorrentClientManager
         torrent_client_manager = get_torrent_client_manager()
@@ -1080,8 +1099,7 @@ async def save_notify_config(payload: Dict[str, Any]):
         # 更新配置
         config["notify"] = new_notify
 
-        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-            yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+        atomic_write_text(CONFIG_PATH, yaml.dump(config, default_flow_style=False, allow_unicode=True))
 
         # 尝试同步到全局config，便于前端刷新
         try:
@@ -1285,8 +1303,7 @@ async def import_trackers_from_clients_route(
             
             # 只有有新的Cloudflare站点时才更新配置文件
             if new_trackers_added:
-                with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-                    yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+                atomic_write_text(CONFIG_PATH, yaml.dump(config, default_flow_style=False, allow_unicode=True))
                 logger.info("已更新配置文件，添加了新的Tracker")
                 hosts_manager.update_config(config)
                 try:
@@ -1359,8 +1376,7 @@ async def clear_all_trackers(
     try:
         config = get_config()
         config["trackers"] = []
-        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-            yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+        atomic_write_text(CONFIG_PATH, yaml.dump(config, default_flow_style=False, allow_unicode=True))
         hosts_manager.update_config(config)
         try:
             import app.main
