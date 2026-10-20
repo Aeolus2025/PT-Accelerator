@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 import yaml
 import os
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 import re
 from croniter import croniter
@@ -1237,13 +1237,20 @@ async def test_notify(payload: Dict[str, Any]):
 async def import_trackers_from_clients_route(
     background_tasks: BackgroundTasks,
     hosts_manager: HostsManager = Depends(get_hosts_manager),
-    config: Dict[str, Any] = Depends(get_config)
+    config: Dict[str, Any] = Depends(get_config),
+    client_id: Optional[str] = None
 ):
-    """从所有已启用的下载器客户端导入Tracker"""
-    logger.info("开始从下载器客户端导入Tracker")
+    """从下载器客户端导入Tracker
+
+    client_id 为空时导入所有已启用的下载器；指定时只导入该下载器。
+    """
+    if client_id:
+        logger.info(f"开始从下载器客户端导入Tracker（指定 client_id={client_id}）")
+    else:
+        logger.info("开始从下载器客户端导入Tracker（全部已启用）")
     try:
         torrent_client_manager = get_torrent_client_manager()
-        result = torrent_client_manager.import_trackers_from_clients()
+        result = torrent_client_manager.import_trackers_from_clients(client_id)
         logger.info(f"导入结果: {result}")
         
         if result.get("status") == "success" and result.get("all_domains"):

@@ -77,7 +77,7 @@ function renderTorrentClients() {
             <h5 class="mb-3 mb-md-0"><i class="bi bi-download me-2"></i>下载器管理</h5>
             <div class="d-flex flex-wrap align-items-center gap-2">
                 <button class="btn btn-success d-flex align-items-center text-nowrap" id="btn-import-trackers">
-                    <i class="bi bi-cloud-download me-1"></i> 导入Tracker
+                    <i class="bi bi-cloud-download me-1"></i> 导入全部Tracker
                 </button>
                 <button class="btn btn-primary d-flex align-items-center text-nowrap" id="btn-add-client">
                     <i class="bi bi-plus-circle me-1"></i> 添加下载器
@@ -122,6 +122,9 @@ function createClientCard(client, index) {
                     ${client.enable ? '<span class="badge bg-success ms-1">已启用</span>' : '<span class="badge bg-secondary ms-1">已禁用</span>'}
                 </div>
                 <div class="d-flex flex-row flex-wrap align-items-center gap-1">
+                    <button class="btn btn-sm btn-outline-success btn-import-tracker-single d-flex align-items-center text-nowrap" onclick="importTrackersFromClients('${client.id}')">
+                        <i class="bi bi-cloud-download me-1"></i> 导入Tracker
+                    </button>
                     <button class="btn btn-sm btn-outline-info d-flex align-items-center text-nowrap" onclick="testClientConnection('${client.id}')">
                         <i class="bi bi-check-circle me-1"></i> 测试
                     </button>
@@ -591,21 +594,46 @@ function performDeleteClient(clientId) {
 }
 
 // 从下载器导入Tracker
-function importTrackersFromClients() {
-    // 检查是否有启用的客户端
-    const enabledClients = currentClients.filter(c => c.enable);
-    if (enabledClients.length === 0) {
-        showToast("请先启用至少一个下载器客户端", "warning", 8000);
-        return;
+// clientId 为空时导入全部已启用的下载器，指定时只导入该下载器
+function importTrackersFromClients(clientId) {
+    const single = !!clientId;
+    let targetClient = null;
+
+    if (single) {
+        targetClient = currentClients.find(c => c.id === clientId);
+        if (!targetClient) {
+            showToast("未找到指定的下载器，请刷新页面后重试", "danger", 6000);
+            return;
+        }
+        if (!targetClient.enable) {
+            showToast("该下载器已禁用，请先启用后再导入Tracker", "warning", 8000);
+            return;
+        }
+    } else {
+        // 检查是否有启用的客户端
+        const enabledClients = currentClients.filter(c => c.enable);
+        if (enabledClients.length === 0) {
+            showToast("请先启用至少一个下载器客户端", "warning", 8000);
+            return;
+        }
     }
-    
+
+    // 单客户端导入时的按钮（全局按钮不变）
+    const $singleBtn = single ? $(`.card[data-client-id="${clientId}"] .btn-import-tracker-single`) : null;
+    const $globalBtn = $('#btn-import-trackers');
+
     $.ajax({
-        url: "/api/import-trackers-from-clients",
+        url: "/api/import-trackers-from-clients" + (single ? "?client_id=" + encodeURIComponent(clientId) : ""),
         type: "POST",
         timeout: 30000,
         beforeSend: function() {
-            $('#btn-import-trackers').prop('disabled', true)
-                .html('<i class="spinner-border spinner-border-sm me-1"></i>导入中...');
+            if (single && $singleBtn && $singleBtn.length) {
+                $singleBtn.prop('disabled', true)
+                    .html('<i class="spinner-border spinner-border-sm me-1"></i>导入中...');
+            } else {
+                $globalBtn.prop('disabled', true)
+                    .html('<i class="spinner-border spinner-border-sm me-1"></i>导入中...');
+            }
         },
         success: function(response) {
             const messageType = response.status === "success" ? "success" : 
@@ -636,8 +664,13 @@ function importTrackersFromClients() {
             }
         },
         complete: function() {
-            $('#btn-import-trackers').prop('disabled', false)
-                .html('<i class="bi bi-cloud-download"></i>导入Tracker');
+            if (single && $singleBtn && $singleBtn.length) {
+                $singleBtn.prop('disabled', false)
+                    .html('<i class="bi bi-cloud-download me-1"></i>导入Tracker');
+            } else {
+                $globalBtn.prop('disabled', false)
+                    .html('<i class="bi bi-cloud-download"></i>导入全部Tracker');
+            }
         }
     });
 }

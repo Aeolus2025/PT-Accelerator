@@ -494,22 +494,28 @@ class TorrentClientManager:
         
         return list(all_trackers)
     
-    def import_trackers_from_clients(self):
-        """自动从所有已启用下载器获取Tracker域名并返回详细信息"""
+    def import_trackers_from_clients(self, client_id: Optional[str] = None):
+        """自动从下载器获取Tracker域名并返回详细信息
+
+        :param client_id: 只导入指定的下载器；为 None 时导入所有已启用的下载器
+        """
         all_domains = set()
         client_results = {}
         
-        for client_id, client_info in self.clients.items():
+        for cid, client_info in self.clients.items():
+            # 指定了 client_id 时只处理该客户端
+            if client_id is not None and cid != client_id:
+                continue
             # 只从启用的客户端导入Tracker
             if not client_info["config"].get("enable", False):
                 continue
                 
-            client_name = client_info["config"].get("name", client_id)
+            client_name = client_info["config"].get("name", cid)
             client_type = client_info["config"].get("type", "unknown")
             
             try:
                 trackers = client_info["client"].get_trackers()
-                client_results[client_id] = {
+                client_results[cid] = {
                     "name": client_name,
                     "type": client_type,
                     "trackers": trackers,
@@ -519,7 +525,7 @@ class TorrentClientManager:
                 all_domains.update(trackers)
                 logger.info(f"从 {client_name} ({client_type}) 获取到 {len(trackers)} 个Tracker域名")
             except Exception as e:
-                client_results[client_id] = {
+                client_results[cid] = {
                     "name": client_name,
                     "type": client_type,
                     "trackers": [],
@@ -530,6 +536,14 @@ class TorrentClientManager:
                 logger.error(f"从 {client_name} ({client_type}) 获取Tracker失败: {str(e)}")
         
         total_count = len(all_domains)
+        if client_id is not None and client_id not in client_results:
+            return {
+                "status": "error",
+                "message": "指定的下载器不存在或未启用",
+                "total_count": 0,
+                "client_results": {},
+                "all_domains": []
+            }
         return {
             "status": "success" if total_count > 0 else "warning",
             "message": f"成功导入 {total_count} 个唯一Tracker域名" if total_count > 0 else "未发现可导入的Tracker域名",
