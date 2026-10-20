@@ -35,21 +35,41 @@
 
 | 标签 | 说明 |
 | --- | --- |
-| `latest` | 跟随 `main` 分支 |
-| `vX.Y.Z` | 对应 `version.py` 的版本号，发版时生成 |
+| `latest` | 最新正式版，**只在推送 `vX.Y.Z` tag 时更新**，`main` 分支上的提交不会改变它 |
+| `vX.Y.Z` | 对应 `version.py` 的版本号，推送同名 tag 时自动生成 |
 
-支持 `linux/amd64` 与 `linux/arm64`，Docker 会自动选择对应架构。
+每个镜像都是 `linux/amd64` 与 `linux/arm64` 的多架构清单，Docker 会自动选择对应架构，不需要单独的架构标签。
 
 **与上游的差异**：
 
 - **前端依赖本地化**：bootstrap / bootstrap-icons / jquery 全部内置在 `app/static/`，不再依赖 `cdn.jsdelivr.net`（内网或 CDN 不可达时页面样式与交互仍正常）
 - **多架构支持**：`cfst_linux_amd64/` 与 `cfst_linux_arm64/` 双架构二进制，`Dockerfile` 按 `TARGETARCH` 自动选取
-- **CI 推送到 GHCR**：使用 `GITHUB_TOKEN`，无需自建 secret；`main` 分支 push 只做构建验证，`tag` 或手动触发才推送
+- **CI 推送到 GHCR**：使用 `GITHUB_TOKEN`，无需自建 secret；`main` 分支 push 只做构建检查不推送，`tag` 推送更新版本号标签与 `latest`，手动触发只推送指定的标签
 - **qBittorrent 5.2+ 支持**：新增 WebUI API 密钥认证（`Authorization: Bearer`），优先于用户名/密码；5.2 以下版本账号密码登录行为不变
 - **外部 hosts 源默认关闭**：自 `2.1.0` 起预装 2 条源且默认不启用，新部署不再自动生成 `MergedHosts`；**已有配置不受影响**，如需相同行为请在「Hosts源」页取消勾选或删除
 - **登录认证首次启用即生效**：开启后当场生成初始密码并打印到日志，无需重启容器
 
 > 从上游镜像迁移到本镜像时，`./config`、`./logs` 目录可直接复用，无需重建数据。
+
+### 镜像发布流程
+
+工作流 [`.github/workflows/Releases.yml`](.github/workflows/Releases.yml) 按触发方式决定构建什么、推送什么：
+
+| 触发方式 | 构建架构 | 推送的镜像 | 影响 `latest` |
+| --- | --- | --- | --- |
+| 推送到 `main` | `amd64` | 无（只做构建检查） | ❌ |
+| 推送 `vX.Y.Z` tag | `amd64` + `arm64` | `vX.Y.Z` 与 `latest` | ✅ |
+| 手动触发，填写 `version` | `amd64` + `arm64` | 仅填写的标签 | ❌ |
+| 手动触发，`version` 留空 | `amd64` + `arm64` | 无（只做构建检查） | ❌ |
+
+发版步骤：
+
+1. 修改 `version.py` 中的 `__version__`，提交到 `main`
+2. 打同名 tag 并推送：`git tag v2.2.0 && git push origin v2.2.0`
+3. 工作流会先校验 tag 名与 `version.py` 是否一致，不一致直接失败，避免把错误的版本号推到 GHCR
+4. 构建成功后 `ghcr.io/aeolus2025/pt-accelerator` 下会同时出现 `v2.2.0` 与 `latest`
+
+> `latest` 的更新路径只有 tag 推送这一条，因此发版前的任何提交都不会影响已发布镜像。
 
 ---
 
@@ -71,7 +91,7 @@ docker run -d \
   -e APP_PORT=23333 \
   ghcr.io/aeolus2025/pt-accelerator:latest
 
-# 指定架构（ARM64架构）
+# 锁定到具体版本（升级时不跟随 latest，便于排查与回滚）
 docker run -d \
   --name pt-accelerator \
   --network host \
@@ -80,7 +100,7 @@ docker run -d \
   -v /path/to/logs:/app/logs \
   -e TZ=Asia/Shanghai \
   -e APP_PORT=23333 \
-  ghcr.io/aeolus2025/pt-accelerator:arm64
+  ghcr.io/aeolus2025/pt-accelerator:v2.2.0
 ```
 
 或使用`docker-compose.yml`：
@@ -297,7 +317,8 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port ${APP_PORT:-23333}
   A: 树莓派使用ARM64架构，直接使用`docker pull ghcr.io/aeolus2025/pt-accelerator:latest`即可，Docker会自动选择ARM64版本。
 
 - **Q: 如何手动构建特定版本的镜像？**  
-  A: 在GitHub Actions页面选择「Build and Publish Docker Image (GHCR)」手动触发，可自定义标签（如 `v2.1.0-hotfix`），构建后推送到 GHCR。
+  A: 在GitHub Actions页面选择「Build and Publish Docker Image (GHCR)」手动触发，在 `version` 输入框填写要推送的标签（如 `main`、`v2.2.1-hotfix`），构建后只推送该标签，**不会更新 `latest`**。留空则只做 amd64 + arm64 双平台构建检查，不推送任何镜像。  
+  > 注意：`Use workflow from` 默认选中的是 `main`，其代码是当前 HEAD。若要重建某个已发布版本，请先把该下拉框切换为对应的 tag 再运行，否则会用新代码覆盖该版本镜像（工作流会给出警告）。
 
 - **Q: 支持哪些通知方式？**  
   A: 支持多种通知渠道，包括系统内置通知、邮件通知等，可在配置中设置通知方式和频率。

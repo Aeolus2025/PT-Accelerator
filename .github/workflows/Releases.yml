@@ -1,10 +1,10 @@
 name: Build and Publish Docker Image (GHCR)
 
-# 触发策略：
-#   - 手动 workflow_dispatch：随时可跑，可自定义标签
-#   - tag v*.*.*：发版时构建（这是常态发布路径）
-#   - main 分支：默认只构建不推送（做一次构建验证），避免每次 push 都等待 QEMU 多架构推送
-#     需要"随时推送 main 快照"时，手动跑 workflow_dispatch 并输入 :main 之类的标签
+# 触发策略（三条路径，互不重叠）：
+#   1. 推送提交 / main 分支：只做构建检查，不登录、不推送任何镜像
+#   2. 推送 tag（v*.*.*）：构建并推送「同名 tag」+「latest」两个镜像（latest 只在这里更新）
+#   3. 页面手动 workflow_dispatch：只构建并推送输入框里填写的标签，不碰 latest；
+#      留空则做 amd64+arm64 双平台构建检查，不推送
 on:
   push:
     branches: [ main ]
@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '自定义标签 (例如: v2.1.0 或 main)。留空则不额外打标签'
+        description: '要构建并推送的镜像标签 (例如: main 或 v2.2.1-hotfix)。留空则做双平台构建检查，不推送'
         required: false
         default: ''
         type: string
@@ -21,32 +21,86 @@ permissions:
   contents: read
   packages: write   # 推送镜像到 GHCR 必需
 
+# 手动触发的 ref 是 main，若与 main 分支 push 共用 group 会互相取消，
+# 因此把 event_name 拼进 group，保证三条路径彼此独立。
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
   docker:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
 
       - name: Set up QEMU
+        # main 分支 push 只做 amd64 快速检查，其余路径（tag 推送 / 手动触发）都要构建 arm64
+        if: github.event_name != 'push' || github.ref_type == 'tag'
         uses: docker/setup-qemu-action@v4.4.0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.4.1
 
-      - name: Decide whether to push
+      # ------------------------------------------------------------------
+      # 解析本次运行的推送意图，输出：
+      #   push          是否推送
+      #   tag           tag 推送：同名 tag；手动：输入的标签
+      #   with_latest   是否额外推送 latest（只有 tag 推送为 true）
+      # ------------------------------------------------------------------
+      - name: Resolve target tags
         id: guard
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
-          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "branch" ]; then
-            echo "push=false" >> $GITHUB_OUTPUT
-            echo "推送已跳过：main 分支 push 仅做构建验证"
-          else
-            echo "push=true" >> $GITHUB_OUTPUT
+          set -eu
+          push=false
+          latest=false
+          target=""
+
+          case "$EVENT_NAME" in
+            push)
+              if [ "$REF_TYPE" = "tag" ]; then
+                push=true
+                latest=true
+                target="$REF_NAME"
+                echo "触发方式：推送 tag；推送 $target 与 latest"
+              else
+                echo "触发方式：push 到分支 $REF_NAME；仅做构建检查，不推送"
+              fi
+              ;;
+            workflow_dispatch)
+              if [ -n "$INPUT_VERSION" ]; then
+                push=true
+                target="$INPUT_VERSION"
+                echo "触发方式：手动触发；仅推送 $target（不更新 latest）"
+              else
+                echo "触发方式：手动触发但未填写标签；做双平台构建检查（amd64 + arm64），不推送"
+              fi
+              ;;
+            *)
+              echo "触发方式：$EVENT_NAME；仅做构建检查，不推送"
+              ;;
+          esac
+
+          # 本次运行实际能构建哪些架构，与下面的 platforms 保持一致：
+          #   push 到分支 / 未填标签的手动触发 → 只有 amd64
+          #   推送 tag / 填写了标签的手动触发 → amd64 + arm64
+          multiarch=false
+          if [ "$push" = "true" ] || [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            multiarch=true
           fi
+
+          {
+            echo "push=$push"
+            echo "with_latest=$latest"
+            echo "tag=$target"
+            echo "multiarch=$multiarch"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
         if: steps.guard.outputs.push == 'true'
@@ -60,27 +114,54 @@ jobs:
         id: version
         run: |
           VERSION=$(python3 -c "import sys; sys.path.insert(0, '.'); from version import __version__; print(__version__)")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "version_with_v=v$VERSION" >> $GITHUB_OUTPUT
           echo "Extracted version: $VERSION"
 
+      - name: Verify tag matches version.py
+        # tag 推送时校验 tag 名与 version.py 一致，避免把旧版本号镜像覆盖成新代码
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        run: |
+          if [ "${{ steps.version.outputs.version_with_v }}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::version.py 为 ${{ steps.version.outputs.version }}，与 tag ${GITHUB_REF_NAME} 不一致，请先同步版本号"
+            exit 1
+          fi
+
+      - name: Warn when manual run targets a version tag from another ref
+        # 手动触发默认跑 main 的 HEAD；此时输入 vX.Y.Z 会把该版本已发布的镜像静默覆盖成新代码
+        if: github.event_name == 'workflow_dispatch' && steps.guard.outputs.push == 'true'
+        env:
+          TARGET_TAG: ${{ steps.guard.outputs.tag }}
+          RUNNING_REF: ${{ github.ref_name }}
+          RUNNING_SHA: ${{ github.sha }}
+        run: |
+          if [ "$TARGET_TAG" != "$RUNNING_REF" ] \
+             && printf '%s' "$TARGET_TAG" | grep -Eq '^v[0-9]+\.[0-9]+'; then
+            echo "::warning title=将覆盖已发布的版本镜像::本次运行在 ${RUNNING_REF}（${RUNNING_SHA:0:7}）上执行，却要推送版本标签 ${TARGET_TAG}，会覆盖该版本已发布的镜像。如非有意重建，请在页面把 Use workflow from 切换为 ${TARGET_TAG} 再运行。"
+          fi
+
       - name: Extract metadata (tags, labels)
         id: meta
+        env:
+          TARGET_TAG: ${{ steps.guard.outputs.tag }}
+          WITH_LATEST: ${{ steps.guard.outputs.with_latest }}
         uses: docker/metadata-action@v6.2.0
         with:
-          images: |
-            ghcr.io/${{ github.repository_owner }}/pt-accelerator
+          # 单镜像名，tag 由下面的 tags 规则显式给出
+          images: ghcr.io/${{ github.repository_owner }}/pt-accelerator
           tags: |
-            type=ref,event=tag
-            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
-            type=raw,value=${{ steps.version.outputs.version_with_v }},enable=${{ github.ref_type == 'tag' }}
-            type=raw,value=${{ github.event.inputs.version }},enable=${{ github.event.inputs.version != '' }}
+            type=raw,value=${{ env.TARGET_TAG }},enable=${{ steps.guard.outputs.push == 'true' }}
+            type=raw,value=latest,enable=${{ env.WITH_LATEST == 'true' }}
 
       - name: Build and push (multi-arch)
         uses: docker/build-push-action@v7.4.0
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
+          # 推送路径与带标签的手动触发都构建双平台；main 分支的快速检查只构建 amd64
+          platforms: ${{ steps.guard.outputs.multiarch == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           push: ${{ steps.guard.outputs.push }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
