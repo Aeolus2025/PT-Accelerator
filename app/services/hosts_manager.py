@@ -527,19 +527,43 @@ class HostsManager:
         else:  # Linux or macOS
             return "/etc/hosts"
     
+    def _strip_project_sections(self, lines: List[str]) -> Tuple[List[str], int]:
+        """逐行剥离本项目写入的分区，返回 (保留的行, 移除的分区数)。
+        用整行精确匹配 + 状态机，而不是原来的字符串切片 find()：
+        """
+        kept: List[str] = []
+        removed = 0
+        in_block = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped == self.start_mark:
+                if in_block:
+                    # 上一个分区没有 END，接着丢弃
+                    continue
+                in_block = True
+                removed += 1
+                continue
+            if stripped == self.end_mark:
+                if in_block:
+                    in_block = False
+                # 孤立的 END 直接丢弃，避免残留
+                continue
+            if not in_block:
+                kept.append(line)
+        return kept, removed
+
     def _update_system_hosts_with_sections(self, sections: List[Tuple[str, List[str], str]]):
         """更新系统hosts文件，保持分段格式，彻底移除所有PT-Accelerator分区，防止分区重复"""
         hosts_path = self._get_hosts_path()
         # 读取当前hosts文件
         with open(hosts_path, 'r') as f:
-            content = f.read()
-        # 循环移除所有PT-Accelerator分区，防止历史残留
-        while self.start_mark in content and self.end_mark in content:
-            start_pos = content.find(self.start_mark)
-            end_pos = content.find(self.end_mark) + len(self.end_mark)
-            content = content[:start_pos] + content[end_pos:]
+            lines = f.readlines()
+        # 剥离所有历史残留分区（含残缺/顺序异常的情况）
+        kept, removed = self._strip_project_sections(lines)
+        if removed:
+            logger.info(f"更新前已清理 {removed} 个历史PT-Accelerator分区")
         # 添加新的条目，保持分段格式
-        new_content = content.rstrip() + "\n\n" + self.start_mark + "\n"
+        new_content = "".join(kept).rstrip() + "\n\n" + self.start_mark + "\n"
         for start_mark, entries, end_mark in sections:
             new_content += start_mark + "\n"
             for entry in entries:
@@ -555,17 +579,12 @@ class HostsManager:
         hosts_path = self._get_hosts_path()
         try:
             with open(hosts_path, 'r') as f:
-                content = f.read()
-            changed = False
-            while self.start_mark in content and self.end_mark in content:
-                start_pos = content.find(self.start_mark)
-                end_pos = content.find(self.end_mark) + len(self.end_mark)
-                content = content[:start_pos] + content[end_pos:]
-                changed = True
-            if changed:
+                lines = f.readlines()
+            kept, removed = self._strip_project_sections(lines)
+            if removed:
                 with open(hosts_path, 'w') as f:
-                    f.write(content.rstrip() + "\n")
-                logger.info("已清理PT-Accelerator分区，保留系统原有hosts内容")
+                    f.write("".join(kept).rstrip() + "\n")
+                logger.info(f"已清理 {removed} 个PT-Accelerator分区，保留系统原有hosts内容")
             else:
                 logger.info("未发现需要清理的PT-Accelerator分区")
         except Exception as e:
