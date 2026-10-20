@@ -593,6 +593,73 @@ function performDeleteClient(clientId) {
     });
 }
 
+// 导入请求超时后的轮询定时器（同一时刻只允许一个，避免重复点击叠加）
+let _importPollTimer = null;
+// 导入开始前的 tracker 域名集合，用于判断导入是否已完成
+let _importBaselineDomains = null;
+
+// 取当前 tracker 域名集合
+function _fetchTrackerDomains() {
+    return fetch('/api/config')
+        .then(r => r.json())
+        .then(config => new Set((config.trackers || []).map(t => t.domain)));
+}
+
+// 停止轮询
+function _stopImportPolling() {
+    if (_importPollTimer) {
+        clearInterval(_importPollTimer);
+        _importPollTimer = null;
+    }
+    _importBaselineDomains = null;
+}
+
+// 请求超时后轮询：后端仍在同步执行导入，等到 tracker 列表发生变化就自动刷新界面。
+// 后端无法通知前端"完成"的时刻，只能靠比对域名集合判断。
+function _startImportPolling() {
+    _stopImportPolling();
+    _importBaselineDomains = null;
+
+    // 先取一次基线（取不到则跳过第一轮）
+    _fetchTrackerDomains().then(domains => {
+        _importBaselineDomains = domains;
+    }).catch(() => {});
+
+    const startedAt = Date.now();
+    const POLL_INTERVAL = 3000;         // 每 3 秒查一次
+    const MAX_DURATION = 5 * 60 * 1000; // 最多轮询 5 分钟
+
+    _importPollTimer = setInterval(() => {
+        if (Date.now() - startedAt > MAX_DURATION) {
+            _stopImportPolling();
+            showToast("导入仍在进行（已超过5分钟），请稍后手动刷新页面查看结果", "warning", 15000);
+            return;
+        }
+
+        _fetchTrackerDomains().then(domains => {
+            // 基线还没取到，用本轮结果当基线
+            if (_importBaselineDomains === null) {
+                _importBaselineDomains = domains;
+                return;
+            }
+            // 域名集合变大 => 导入已写入新 tracker
+            const hasNew = domains.size > _importBaselineDomains.size ||
+                [...domains].some(d => !_importBaselineDomains.has(d));
+            if (hasNew) {
+                const added = domains.size - _importBaselineDomains.size;
+                _stopImportPolling();
+                showToast(`导入完成，新增 ${added} 个Tracker，正在刷新列表...`, "success", 8000);
+                if (typeof loadTrackers === 'function') {
+                    loadTrackers();
+                }
+                if (typeof loadCurrentHosts === 'function') {
+                    setTimeout(loadCurrentHosts, 1000);
+                }
+            }
+        }).catch(() => { /* 网络抖动忽略，下一轮再试 */ });
+    }, POLL_INTERVAL);
+}
+
 // 从下载器导入Tracker
 // clientId 为空时导入全部已启用的下载器，指定时只导入该下载器
 function importTrackersFromClients(clientId) {
@@ -658,7 +725,10 @@ function importTrackersFromClients(clientId) {
         error: function(xhr, status, error) {
             console.error('导入Tracker失败:', status, error);
             if (status === "timeout") {
-                showToast("导入Tracker超过30秒，可能tracker数量较多，程序仍在后台导入，请耐心等待并稍后查看tracker列表", "warning", 15000);
+                // 后端仍在同步执行导入，只是前端不再等待。
+                // 轮询 tracker 列表，导入写入后自动刷新界面，无需手动刷新页面。
+                showToast("导入耗时较长，后端仍在处理中，完成后会自动刷新列表...", "info", 8000);
+                _startImportPolling();
             } else {
                 showToast("导入Tracker失败: " + error, "danger", 10000);
             }

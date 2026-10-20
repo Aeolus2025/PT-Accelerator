@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request, status, Query, Form
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 import yaml
 import os
 import logging
@@ -1243,114 +1244,128 @@ async def import_trackers_from_clients_route(
     """从下载器客户端导入Tracker
 
     client_id 为空时导入所有已启用的下载器；指定时只导入该下载器。
+
+    整个导入过程（拉取 tracker + 逐域名 Cloudflare 检测 + 写配置）都是同步阻塞调用，
+    其中每个域名的 Cloudflare 检测含 HTTP/DNS 多重超时重试，25 个域名就可能耗时 30 秒以上。
+    必须整体放到线程池执行，否则会阻塞事件循环，导致前端轮询进度的 /api/config 也排队超时，
+    表现为"导入完成后页面不会自动刷新"。
     """
     if client_id:
         logger.info(f"开始从下载器客户端导入Tracker（指定 client_id={client_id}）")
     else:
         logger.info("开始从下载器客户端导入Tracker（全部已启用）")
-    try:
-        torrent_client_manager = get_torrent_client_manager()
-        result = torrent_client_manager.import_trackers_from_clients(client_id)
-        logger.info(f"导入结果: {result}")
-        
-        if result.get("status") == "success" and result.get("all_domains"):
-            existing_domains = {tracker['domain'] for tracker in config.get('trackers', [])}
-            new_trackers_added = False
-            cf_domains = []
-            non_cf_domains = []
-            
-            # 临时调整日志级别为DEBUG，以便查看详细的Cloudflare检测日志
-            hosts_manager_logger = logging.getLogger('app.services.hosts_manager')
-            original_level = hosts_manager_logger.level
-            hosts_manager_logger.setLevel(logging.DEBUG)
-            
-            # 域名清洗和Cloudflare检测
-            for domain in result["all_domains"]:
-                # 清洗tracker域名，移除http前缀和路径
-                d = re.sub(r"^https?://", "", domain, flags=re.IGNORECASE)
-                d = d.split("/")[0]
-                domain = d
-                
-                # 提取纯域名（移除端口号）用于Cloudflare检测
-                clean_domain = domain.split(':')[0] if ':' in domain else domain
-                
-                logger.info(f"[Cloudflare检测] 正在检测下载器导入的域名: {clean_domain}")
-                # 检测Cloudflare
-                if hosts_manager.is_cloudflare_domain(clean_domain):
-                    cf_domains.append(domain)
-                    if domain not in existing_domains:
-                        default_ip = DEFAULT_CLOUDFLARE_IP
-                        new_tracker = {
-                            "name": domain,
-                            "domain": domain,
-                            "enable": True,
-                            "ip": default_ip
-                        }
-                        config.setdefault('trackers', []).append(new_tracker)
-                        existing_domains.add(domain)
-                        new_trackers_added = True
-                else:
-                    logger.info(f"[Cloudflare检测] 域名 {clean_domain} 不是Cloudflare域名，已跳过")
-                    non_cf_domains.append(domain)
-            
-            # 恢复原有日志级别
-            hosts_manager_logger.setLevel(original_level)
-            
-            # 统一输出检测结果
-            if cf_domains:
-                logger.info("=== Cloudflare站点检测结果 ===")
-                logger.info(f"成功检测到 {len(cf_domains)} 个Cloudflare站点:")
-                for domain in cf_domains:
-                    logger.info(f"- {domain}")
-            
-            if non_cf_domains:
-                logger.info(f"检测到 {len(non_cf_domains)} 个非Cloudflare站点:")
-                for domain in non_cf_domains:
-                    logger.info(f"- {domain}")
-            
-            # 只有有新的Cloudflare站点时才更新配置文件
-            if new_trackers_added:
-                atomic_write_text(CONFIG_PATH, yaml.dump(config, default_flow_style=False, allow_unicode=True))
-                logger.info("已更新配置文件，添加了新的Tracker")
-                hosts_manager.update_config(config)
+
+    def _do_import() -> Dict[str, Any]:
+        """同步执行完整导入流程（在线程池中运行）"""
+        try:
+            torrent_client_manager = get_torrent_client_manager()
+            result = torrent_client_manager.import_trackers_from_clients(client_id)
+            logger.info(f"导入结果: {result}")
+
+            if result.get("status") == "success" and result.get("all_domains"):
+                existing_domains = {tracker['domain'] for tracker in config.get('trackers', [])}
+                new_trackers_added = False
+                cf_domains = []
+                non_cf_domains = []
+
+                # 临时调整日志级别为DEBUG，以便查看详细的Cloudflare检测日志
+                hosts_manager_logger = logging.getLogger('app.services.hosts_manager')
+                original_level = hosts_manager_logger.level
+                hosts_manager_logger.setLevel(logging.DEBUG)
                 try:
-                    import app.main
-                    app.main.config = config
-                    logger.info("同步刷新全局config对象，确保前端获取到最新tracker列表")
-                except Exception as e:
-                    logger.error(f"刷新全局config对象失败: {str(e)}")
-                
-                # 触发hosts更新
-                background_tasks.add_task(hosts_manager.update_hosts)
-                
-                # 更新结果消息，区分加速和过滤站点
-                cf_only_message = f"成功导入 {len(cf_domains)} 个Cloudflare站点"
-                if non_cf_domains:
-                    cf_only_message += f"，已过滤 {len(non_cf_domains)} 个非Cloudflare站点"
-                result["message"] = cf_only_message + "，Hosts更新任务已在后台启动"
-            else:
-                # 无新Cloudflare站点时的消息
+                    # 域名清洗和Cloudflare检测
+                    for domain in result["all_domains"]:
+                        # 清洗tracker域名，移除http前缀和路径
+                        d = re.sub(r"^https?://", "", domain, flags=re.IGNORECASE)
+                        d = d.split("/")[0]
+                        domain = d
+
+                        # 提取纯域名（移除端口号）用于Cloudflare检测
+                        clean_domain = domain.split(':')[0] if ':' in domain else domain
+
+                        logger.info(f"[Cloudflare检测] 正在检测下载器导入的域名: {clean_domain}")
+                        # 检测Cloudflare
+                        if hosts_manager.is_cloudflare_domain(clean_domain):
+                            cf_domains.append(domain)
+                            if domain not in existing_domains:
+                                default_ip = DEFAULT_CLOUDFLARE_IP
+                                new_tracker = {
+                                    "name": domain,
+                                    "domain": domain,
+                                    "enable": True,
+                                    "ip": default_ip
+                                }
+                                config.setdefault('trackers', []).append(new_tracker)
+                                existing_domains.add(domain)
+                                new_trackers_added = True
+                        else:
+                            logger.info(f"[Cloudflare检测] 域名 {clean_domain} 不是Cloudflare域名，已跳过")
+                            non_cf_domains.append(domain)
+                finally:
+                    # 恢复原有日志级别
+                    hosts_manager_logger.setLevel(original_level)
+
+                # 统一输出检测结果
                 if cf_domains:
-                    result["message"] = f"未发现新的Cloudflare站点，已有站点 {len(cf_domains)} 个，过滤非Cloudflare站点 {len(non_cf_domains)} 个"
+                    logger.info("=== Cloudflare站点检测结果 ===")
+                    logger.info(f"成功检测到 {len(cf_domains)} 个Cloudflare站点:")
+                    for domain in cf_domains:
+                        logger.info(f"- {domain}")
+
+                if non_cf_domains:
+                    logger.info(f"检测到 {len(non_cf_domains)} 个非Cloudflare站点:")
+                    for domain in non_cf_domains:
+                        logger.info(f"- {domain}")
+
+                # 只有有新的Cloudflare站点时才更新配置文件
+                if new_trackers_added:
+                    atomic_write_text(CONFIG_PATH, yaml.dump(config, default_flow_style=False, allow_unicode=True))
+                    logger.info("已更新配置文件，添加了新的Tracker")
+                    hosts_manager.update_config(config)
+                    try:
+                        import app.main
+                        app.main.config = config
+                        logger.info("同步刷新全局config对象，确保前端获取到最新tracker列表")
+                    except Exception as e:
+                        logger.error(f"刷新全局config对象失败: {str(e)}")
+
+                    # 更新结果消息，区分加速和过滤站点
+                    cf_only_message = f"成功导入 {len(cf_domains)} 个Cloudflare站点"
+                    if non_cf_domains:
+                        cf_only_message += f"，已过滤 {len(non_cf_domains)} 个非Cloudflare站点"
+                    result["message"] = cf_only_message + "，Hosts更新任务已在后台启动"
+                    result["hosts_update_needed"] = True
                 else:
-                    result["message"] = f"未找到任何Cloudflare站点，已过滤非Cloudflare站点 {len(non_cf_domains)} 个"
-            
-            # 添加详细的客户端结果信息
-            client_summary = []
-            for _, client_result in result.get("client_results", {}).items():
-                if client_result.get("success"):
-                    client_summary.append(f"{client_result['name']}: {client_result['count']}个")
-                else:
-                    client_summary.append(f"{client_result['name']}: 失败({client_result.get('error', '未知错误')})")
-            
-            if client_summary:
-                result["client_summary"] = "；".join(client_summary)
-        
-        return result
-        
-    except Exception as e:
-        logger.error(f"从下载器客户端导入Tracker失败: {str(e)}", exc_info=True)
-        return {"status": "error", "message": f"导入过程中发生错误: {str(e)}"}
+                    # 无新Cloudflare站点时的消息
+                    if cf_domains:
+                        result["message"] = f"未发现新的Cloudflare站点，已有站点 {len(cf_domains)} 个，过滤非Cloudflare站点 {len(non_cf_domains)} 个"
+                    else:
+                        result["message"] = f"未找到任何Cloudflare站点，已过滤非Cloudflare站点 {len(non_cf_domains)} 个"
+
+                # 添加详细的客户端结果信息
+                client_summary = []
+                for _, client_result in result.get("client_results", {}).items():
+                    if client_result.get("success"):
+                        client_summary.append(f"{client_result['name']}: {client_result['count']}个")
+                    else:
+                        client_summary.append(f"{client_result['name']}: 失败({client_result.get('error', '未知错误')})")
+
+                if client_summary:
+                    result["client_summary"] = "；".join(client_summary)
+
+            return result
+
+        except Exception as e:
+            logger.error(f"从下载器客户端导入Tracker失败: {str(e)}", exc_info=True)
+            return {"status": "error", "message": f"导入过程中发生错误: {str(e)}"}
+
+    result = await run_in_threadpool(_do_import)
+
+    # 线程池执行完毕后，在这里触发后台 hosts 更新（BackgroundTasks 必须在事件循环内挂载）
+    if result.pop("hosts_update_needed", False):
+        background_tasks.add_task(hosts_manager.update_hosts)
+
+    return result
 
 @router.post("/clear-and-update-hosts")
 async def clear_and_update_hosts(
