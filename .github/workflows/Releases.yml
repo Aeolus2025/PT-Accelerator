@@ -1,7 +1,7 @@
 name: Build and Publish Docker Image (GHCR)
 
 # 触发策略（三条路径，互不重叠）：
-#   1. 推送提交 / main 分支：只做构建检查，不登录、不推送任何镜像
+#   1. 推送提交 / main 分支：做 amd64 + arm64 双平台构建检查，不登录、不推送任何镜像
 #   2. 推送 tag（v*.*.*）：构建并推送「同名 tag」+「latest」两个镜像（latest 只在这里更新）
 #   3. 页面手动 workflow_dispatch：只构建并推送输入框里填写的标签，不碰 latest；
 #      留空则做 amd64+arm64 双平台构建检查，不推送
@@ -36,8 +36,7 @@ jobs:
         uses: actions/checkout@v7.0.1
 
       - name: Set up QEMU
-        # main 分支 push 只做 amd64 快速检查，其余路径（tag 推送 / 手动触发）都要构建 arm64
-        if: github.event_name != 'push' || github.ref_type == 'tag'
+        # 所有路径都要构建 arm64（推送前在 CI 里就暴露架构相关问题，而不是等发 tag 时才发现）
         uses: docker/setup-qemu-action@v4.4.0
 
       - name: Set up Docker Buildx
@@ -87,19 +86,10 @@ jobs:
               ;;
           esac
 
-          # 本次运行实际能构建哪些架构，与下面的 platforms 保持一致：
-          #   push 到分支 / 未填标签的手动触发 → 只有 amd64
-          #   推送 tag / 填写了标签的手动触发 → amd64 + arm64
-          multiarch=false
-          if [ "$push" = "true" ] || [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            multiarch=true
-          fi
-
           {
             echo "push=$push"
             echo "with_latest=$latest"
             echo "tag=$target"
-            echo "multiarch=$multiarch"
           } >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
@@ -158,8 +148,8 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          # 推送路径与带标签的手动触发都构建双平台；main 分支的快速检查只构建 amd64
-          platforms: ${{ steps.guard.outputs.multiarch == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          # 所有路径统一构建双平台；不推送时仅做构建检查，不会产生任何镜像
+          platforms: linux/amd64,linux/arm64
           push: ${{ steps.guard.outputs.push }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
