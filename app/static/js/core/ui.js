@@ -329,11 +329,11 @@
         showErrorModal: showErrorModal
     };
 
-    // 兼容旧调用点，批次 2-4 全部迁移后删除
-    global.showToast = showToast;
-    global.showConfirmModal = showConfirmModal;
+    // 全局简写，各模块统一使用
+    global.toast = showToast;
+    global.confirmModal = showConfirmModal;
+    global.successModal = showSuccessModal;
+    global.errorModal = showErrorModal;
     global.showProgressModal = showProgressModal;
     global.hideProgressModal = hideProgressModal;
-    global.showSuccessModal = showSuccessModal;
-    global.showErrorModal = showErrorModal;
 })(window);

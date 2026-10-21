@@ -230,8 +230,8 @@
 
     function showError(title, message, suggestion, retry) {
         console.error(title, message);
-        showToast(message, 'danger');
-        showErrorModal(title, message, suggestion || '', !!retry, retry || null);
+        toast(message, 'danger');
+        errorModal(title, message, suggestion || '', !!retry, retry || null);
     }
 
     async function saveAuthSettings() {
@@ -292,7 +292,7 @@
             if (needReload) {
                 var fields = el('authFields');
                 if (fields) fields.classList.add('d-none');
-                showSuccessModal('设置更新成功', successMsg, '', {
+                successModal('设置更新成功', successMsg, '', {
                     countdown: 10,
                     confirmText: '立即刷新',
                     onDone: function () { window.location.replace(window.location.pathname); }
@@ -303,10 +303,10 @@
                 store.patch({ auth: Object.assign({}, store.section('auth', {}), updated) })
                     .catch(function (e) { console.warn('同步认证配置到 store 失败', e); });
                 updateAuthUI(updated);
-                showSuccessModal('设置更新成功', successMsg);
+                successModal('设置更新成功', successMsg);
             }
 
-            showToast(successMsg, 'success');
+            toast(successMsg, 'success');
             clearPasswordFields();
         } catch (error) {
             var message = (error && error.message) || String(error) || '请求失败';
@@ -322,6 +322,10 @@
     // ---------------------------------------------------------------- 初始化
 
     function initAuthSettings() {
+        // 防重复绑定
+        if (initAuthSettings.__bound) return;
+        initAuthSettings.__bound = true;
+
         initialAuthConfig = store.section('auth', {}) || {};
 
         var checkbox = el('enableAuth');

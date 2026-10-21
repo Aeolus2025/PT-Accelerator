@@ -1,0 +1,296 @@
+/* PT-Accelerator 自定义样式（原 index.html 内联样式） */
+
+:root {
+    --primary-color: #4361ee;
+    --secondary-color: #3f37c9;
+    --success-color: #0bb85f;
+    --info-color: #4cc9f0;
+    --warning-color: #ffbe0b;
+    --danger-color: #ef233c;
+    --light-color: #f8f9fa;
+    --dark-color: #212529;
+    --body-bg: #f5f7fb;
+    --card-bg: #ffffff;
+    --border-radius: 0.5rem;
+}
+
+body {
+    background-color: var(--body-bg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    padding-top: 20px;
+    padding-bottom: 20px;
+}
+
+.container {
+    max-width: 1200px;
+}
+
+.app-header {
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    color: white;
+    padding: 1.5rem 2rem;
+    border-radius: var(--border-radius);
+    margin-bottom: 1.5rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.app-header h1 {
+    margin: 0;
+    font-size: 1.75rem;
+    font-weight: 600;
+}
+
+.app-header p {
+    margin: 0.5rem 0 0;
+    opacity: 0.9;
+}
+
+.nav-tabs {
+    border-bottom: none;
+    margin-bottom: 1rem;
+}
+
+.nav-tabs .nav-link {
+    border: none;
+    padding: 0.75rem 1.25rem;
+    border-radius: var(--border-radius);
+    margin-right: 0.5rem;
+    font-weight: 500;
+    color: var(--dark-color);
+    transition: all 0.2s ease;
+}
+
+.nav-tabs .nav-link:hover {
+    background-color: rgba(67, 97, 238, 0.1);
+    color: var(--primary-color);
+}
+
+.nav-tabs .nav-link.active {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.card {
+    border: none;
+    border-radius: var(--border-radius);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+    margin-bottom: 1.5rem;
+    background-color: var(--card-bg);
+}
+
+.card-header {
+    background-color: rgba(0, 0, 0, 0.02);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    font-weight: 600;
+    padding: 1rem 1.25rem;
+}
+
+.card-body {
+    padding: 1.25rem;
+}
+
+.btn {
+    border-radius: 0.4rem;
+    padding: 0.5rem 1rem;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.btn-primary {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.btn-primary:hover {
+    background-color: var(--secondary-color);
+    border-color: var(--secondary-color);
+}
+
+.btn-success {
+    background-color: var(--success-color);
+    border-color: var(--success-color);
+}
+
+.btn-info {
+    background-color: var(--info-color);
+    border-color: var(--info-color);
+    color: white;
+}
+
+.btn-info:hover {
+    color: white;
+}
+
+.table {
+    margin-bottom: 0;
+}
+
+.table thead th {
+    border-top: none;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+    font-weight: 600;
+    color: var(--dark-color);
+}
+
+.table td {
+    vertical-align: middle;
+}
+
+.form-check-input:checked {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.form-switch .form-check-input {
+    width: 2.5em;
+    height: 1.25em;
+}
+
+.spinner-container {
+    display: inline-block;
+    margin-left: 10px;
+}
+
+.hidden {
+    display: none;
+}
+
+#logs {
+    height: 500px;
+    overflow-y: auto;
+    font-family: Consolas, Monaco, 'Andale Mono', monospace;
+    white-space: pre-wrap;
+    background-color: #f8f9fa;
+    padding: 15px;
+    border-radius: var(--border-radius);
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+.result-table {
+    margin-top: 20px;
+}
+
+.action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.action-btn i {
+    margin-right: 0.35rem;
+}
+
+.quick-action-card {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.dashboard-status-card {
+    height: 100%;
+}
+
+.status-badge {
+    padding: 0.25rem 0.5rem;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.badge-running {
+    background-color: rgba(11, 184, 95, 0.1);
+    color: var(--success-color);
+}
+
+.badge-stopped {
+    background-color: rgba(239, 35, 60, 0.1);
+    color: var(--danger-color);
+}
+
+.table-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.form-floating > .form-control {
+    padding-top: 1.625rem;
+    padding-bottom: 0.625rem;
+}
+
+.form-floating > label {
+    padding: 1rem 0.75rem;
+}
+
+/* 确保验证反馈文本在input-group中正确显示 */
+.input-group.has-validation .invalid-feedback {
+    display: none;
+    width: 100%;
+    margin-top: 0.25rem;
+    font-size: 0.875rem;
+    color: #dc3545;
+}
+
+.input-group.has-validation .valid-feedback {
+    display: none;
+    width: 100%;
+    margin-top: 0.25rem;
+    font-size: 0.875rem;
+    color: #198754;
+}
+
+/* 当输入框有is-invalid类时显示invalid-feedback */
+.input-group.has-validation .form-control.is-invalid ~ .invalid-feedback {
+    display: block;
+}
+
+/* 当输入框有is-valid类时显示valid-feedback */
+.input-group.has-validation .form-control.is-valid ~ .valid-feedback {
+    display: block;
+}
+
+#current-hosts {
+    max-height: 300px;
+    overflow-y: auto;
+    font-family: Consolas, Monaco, 'Andale Mono', monospace;
+    background-color: #f8f9fa;
+    padding: 15px;
+    border-radius: var(--border-radius);
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+.modal-content {
+    border-radius: var(--border-radius);
+    border: none;
+    box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1);
+}
+
+.modal-header {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    padding: 1.25rem 1.5rem;
+}
+
+.modal-body {
+    padding: 1.5rem;
+}
+
+.modal-footer {
+    border-top: 1px solid rgba(0, 0, 0, 0.05);
+    padding: 1.25rem 1.5rem;
+}
+
+/* 版本号链接样式 */
+.version-link {
+    cursor: pointer;
+}
+
+.version-link:hover {
+    background-color: rgba(255, 255, 255, 0.3) !important;
+    color: #ffffff !important;
+    transform: scale(1.05);
+}
+
+.version-link:active {
+    transform: scale(0.98);
+}

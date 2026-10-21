@@ -146,13 +146,17 @@
             renderNotifyChannels(notifyConfig.channels || {});
         } catch (error) {
             console.error('加载通知配置失败:', error);
-            showToast('加载通知配置失败: ' + error.message, 'danger');
+            toast('加载通知配置失败: ' + error.message, 'danger');
         }
     }
 
     // ---------------------------------------------------------------- 事件
 
     function bindNotifyEvents() {
+        // 防重复绑定
+        if (bindNotifyEvents.__bound) return;
+        bindNotifyEvents.__bound = true;
+
         var enabledEl = el('notifyEnabled');
         if (enabledEl) enabledEl.addEventListener('change', updateNotifyEnabled);
 
@@ -180,7 +184,7 @@
             setChannelEnabled(key, next).catch(function (error) {
                 input.checked = !next;
                 console.error('切换渠道状态失败:', error);
-                showToast('操作失败: ' + error.message, 'danger');
+                toast('操作失败: ' + error.message, 'danger');
             });
         });
 
@@ -192,7 +196,7 @@
         });
         ui.delegate(list, 'click', '[data-action="delete-channel"]', function () {
             var key = this.dataset.key;
-            showConfirmModal('确认删除', '确定要删除这个通知渠道吗？', function () {
+            confirmModal('确认删除', '确定要删除这个通知渠道吗？', function () {
                 performDeleteChannel(key);
             });
         });
@@ -213,11 +217,11 @@
 
         try {
             await notifyStore.patch({ enable: enabled });
-            showToast('通知功能已' + (enabled ? '启用' : '禁用'), 'success');
+            toast('通知功能已' + (enabled ? '启用' : '禁用'), 'success');
         } catch (error) {
             console.error('更新通知状态失败:', error);
             input.checked = !enabled;
-            showToast('更新失败: ' + error.message, 'danger');
+            toast('更新失败: ' + error.message, 'danger');
         }
     }
 
@@ -226,7 +230,7 @@
             if (!channels[channelKey]) throw new Error('未找到该通知渠道');
             channels[channelKey] = Object.assign({}, channels[channelKey], { enable: enabled });
         });
-        showToast('渠道已' + (enabled ? '启用' : '禁用'), 'success');
+        toast('渠道已' + (enabled ? '启用' : '禁用'), 'success');
     }
 
     async function performDeleteChannel(channelKey) {
@@ -235,11 +239,11 @@
                 if (!channels[channelKey]) throw new Error('未找到该通知渠道');
                 delete channels[channelKey];
             });
-            showToast('渠道已删除', 'success');
+            toast('渠道已删除', 'success');
             renderNotifyChannels(notifyStore.section('channels', {}));
         } catch (error) {
             console.error('删除渠道失败:', error);
-            showToast('删除失败: ' + error.message, 'danger');
+            toast('删除失败: ' + error.message, 'danger');
         }
     }
 
@@ -426,7 +430,7 @@
         var channelData = collectChannelData();
 
         if (!channelData.name) {
-            showToast('请填写渠道名称', 'danger');
+            toast('请填写渠道名称', 'danger');
             return;
         }
 
@@ -438,7 +442,7 @@
                 channels[channelData.name] = channelData;
             });
 
-            showToast('通知渠道已保存', 'success');
+            toast('通知渠道已保存', 'success');
 
             var modalEl = el('notifyChannelModal');
             if (modalEl && document.activeElement && modalEl.contains(document.activeElement)) {
@@ -455,7 +459,7 @@
             renderNotifyChannels(notifyStore.section('channels', {}));
         } catch (error) {
             console.error('保存通知渠道失败:', error);
-            showToast('保存失败: ' + error.message, 'danger');
+            toast('保存失败: ' + error.message, 'danger');
         }
     }
 
@@ -463,7 +467,7 @@
         var channels = notifyStore.section('channels', {});
         var ch = channels[channelKey];
         if (!ch) {
-            showToast('未找到该通知渠道', 'danger');
+            toast('未找到该通知渠道', 'danger');
             return;
         }
 
@@ -509,11 +513,11 @@
         try {
             var ch = notifyStore.section('channels', {})[channelKey];
             if (!ch) {
-                showToast('渠道不存在', 'warning');
+                toast('渠道不存在', 'warning');
                 return;
             }
             if (!ch.enable) {
-                showToast('该渠道未启用', 'warning');
+                toast('该渠道未启用', 'warning');
                 return;
             }
 
@@ -526,13 +530,13 @@
 
             var data = await api.post('/api/notify/test', payload);
             if (data && data.success) {
-                showToast('测试通知已发送', 'success');
+                toast('测试通知已发送', 'success');
             } else {
                 throw new Error((data && data.message) || '发送失败');
             }
         } catch (error) {
             console.error('测试通知失败:', error);
-            showToast('测试失败: ' + error.message, 'danger');
+            toast('测试失败: ' + error.message, 'danger');
         }
     }
 
@@ -555,7 +559,7 @@
         saveNotifyChannel: saveNotifyChannel,
         editChannel: editChannel,
         deleteChannel: function (key) {
-            showConfirmModal('确认删除', '确定要删除这个通知渠道吗？', function () {
+            confirmModal('确认删除', '确定要删除这个通知渠道吗？', function () {
                 performDeleteChannel(key);
             });
         },
