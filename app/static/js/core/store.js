@@ -25,7 +25,7 @@
         var inflight = null;
         var listeners = [];
         var dirty = false;
-        var flushing = false;
+        var inflightWrite = null;
 
         function get() {
             if (state === null) state = opts.initial || {};
@@ -61,35 +61,39 @@
             return inflight;
         }
 
-        // 合并提交：提交期间的修改排到下一轮
+        // 合并提交：在途期间的新修改标记为脏，复用同一个 Promise
         function flush() {
-            if (flushing) {
+            if (inflightWrite) {
                 dirty = true;
-                return Promise.resolve(get());
+                return inflightWrite;
             }
 
-            flushing = true;
+            dirty = false;
 
             function step() {
-                dirty = false;
                 return global.api.post(ENDPOINT, wrap(get())).then(function () {
-                    if (dirty) return step();
+                    if (dirty) {
+                        dirty = false;
+                        return step();
+                    }
                     return get();
                 });
             }
 
-            return step().then(function (value) {
-                flushing = false;
+            inflightWrite = step().then(function (value) {
+                inflightWrite = null;
                 return value;
             }, function (e) {
-                flushing = false;
-                // 失败回源，避免本地脏状态继续叠加
+                inflightWrite = null;
+                // 失败回源，多个调用方共享同一次回源
                 return load(true).then(function () {
                     throw e;
                 }, function () {
                     throw e;
                 });
             });
+
+            return inflightWrite;
         }
 
         // 顶层字段合并后提交
@@ -116,10 +120,6 @@
             },
             load: load,
             patch: patch,
-            mutate: function (fn) {
-                fn(get());
-                notify();
-            },
             flush: flush,
             subscribe: function (fn) {
                 listeners.push(fn);

@@ -7,15 +7,19 @@ document.addEventListener('DOMContentLoaded', function() {
     loadHostsSources();
     loadLogs();
     loadCurrentHosts();
-    loadCustomAcceleratedSites();
     // 绑定事件
     bindEvents();
     bindTrackerEvents();
     bindHostsSourceEvents();
     enhanceInputValidation();
     // 页面模块初始化（通知 / 认证）
-    initNotifySettings();
+    notifyPage.initNotifySettings();
     authPage.initAuthSettings();
+    // 配置变更后自动重绘依赖它的两张表
+    store.subscribe(function (config) {
+        renderTrackerTable(config.trackers || []);
+        renderHostsSourceTable(config.hosts_sources || []);
+    });
 });
 
 function bindEvents() {
@@ -29,14 +33,12 @@ function bindEvents() {
             spinner.className = 'spinner-container';
             spinner.innerHTML = '<div class="spinner-border spinner-border-sm text-light" role="status"><span class="visually-hidden">Loading...</span></div>';
             this.appendChild(spinner);
-            fetch('/api/run-cfst-script', { method: 'POST' })
-                .then(response => response.json())
+            api.post('/api/run-cfst-script', undefined, { timeout: 0 })
                 .then(data => {
                     showActionResult(data.message, 'success');
                     loadCurrentHosts();
                     setTimeout(() => {
-                        fetch('/api/task-status')
-                            .then(res => res.json())
+                        api.get('/api/task-status')
                             .then(res => {
                                 if (res.status === 'done') {
                                     loadCurrentHosts();
@@ -61,8 +63,7 @@ function bindEvents() {
         btnUpdateHosts.addEventListener('click', function() {
             const resultElement = document.getElementById('action-result');
             resultElement.innerHTML = '<div class="alert alert-info">正在更新Hosts...</div>';
-            fetch('/api/update-hosts', { method: 'POST' })
-                .then(response => response.json())
+            api.post('/api/update-hosts', undefined, { timeout: 120000 })
                 .then(data => {
                     resultElement.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
                     loadCurrentHosts();
@@ -85,23 +86,11 @@ function bindEvents() {
             if (saveBtn) saveBtn.disabled = true;
             if (spinner) spinner.classList.remove('d-none');
             if (resultSpan) resultSpan.textContent = '';
-            const config = {
-                cloudflare: {
-                    enable: document.getElementById('cloudflare-enable').checked,
-                    cron: document.getElementById('cloudflare-cron').value
-                }
+            const cloudflare = {
+                enable: document.getElementById('cloudflare-enable').checked,
+                cron: document.getElementById('cloudflare-cron').value
             };
-            fetch('/api/config')
-                .then(response => response.json())
-                .then(fullConfig => {
-                    const updatedConfig = { ...fullConfig, cloudflare: config.cloudflare };
-                    return fetch('/api/config', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(updatedConfig)
-                    });
-                })
-                .then(response => response.json())
+            store.patch({ cloudflare: cloudflare })
                 .then(() => {
                     showToast('定时任务配置已保存', 'success');
                     if (resultSpan) {
@@ -142,12 +131,7 @@ function bindEvents() {
             const originalText = this.textContent;
             this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 处理中...';
             showToast('正在添加Tracker，请稍候...', 'info', 8000);
-            fetch(`/api/trackers?force_cloudflare=${forceCloudflare}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(tracker)
-            })
-                .then(response => response.json())
+            api.post(`/api/trackers?force_cloudflare=${forceCloudflare}`, tracker)
                 .then(data => {
                     const modal = bootstrap.Modal.getInstance(document.getElementById('addTrackerModal'));
                     if (modal) modal.hide();
@@ -177,12 +161,7 @@ function bindEvents() {
                 return;
             }
             const source = { name, url, enable };
-            fetch('/api/hosts-sources', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(source)
-            })
-                .then(response => response.json())
+            api.post('/api/hosts-sources', source)
                 .then(data => {
                     const modal = bootstrap.Modal.getInstance(document.getElementById('addHostsSourceModal'));
                     if (modal) modal.hide();
@@ -208,8 +187,7 @@ function bindEvents() {
         clearLogsBtn.addEventListener('click', function() {
             showConfirmModal('确认操作', '确定要清空系统日志吗？此操作不可恢复。', function onConfirm() {
                 clearLogsBtn.disabled = true;
-                fetch('/api/logs/clear', { method: 'POST' })
-                    .then(res => res.json())
+                api.post('/api/logs/clear')
                     .then(res => {
                         if (res && res.success) {
                             showToast(res.message || '日志已清空', 'success');
@@ -277,7 +255,7 @@ function bindEvents() {
             showConfirmModal('确认操作', '确定要清理由本项目写入的 hosts 分区并重新生成吗？此操作不会清空您原有的 hosts 内容。建议先备份。', function onConfirm() {
                 btnClearAndUpdateHosts.disabled = true;
                 showToast('正在执行清理并更新hosts，请稍候...', 'info', 10000);
-                fetch('/api/clear-and-update-hosts', { method: 'POST' })
+                api.post('/api/clear-and-update-hosts', undefined, { timeout: 0 })
                     .then(response => response.json())
                     .then(data => {
                         showToast(data.message || '已清理项目分区并更新hosts', 'success', 10000);
@@ -298,8 +276,7 @@ function bindEvents() {
         btnEditHosts.addEventListener('click', function() {
             showConfirmModal('确认操作', '此操作将修改系统Hosts文件，如果你不知道接下来该干什么请取消！', function onConfirm() {
                 // 打开编辑模态框并加载当前内容
-                fetch('/api/current-hosts')
-                    .then(res => res.json())
+                api.get('/api/current-hosts')
                     .then(data => {
                         const content = Array.isArray(data.hosts) ? data.hosts.join('') : (data.hosts || '');
                         const textarea = document.getElementById('edit-hosts-textarea');
@@ -320,12 +297,7 @@ function bindEvents() {
             const textarea = document.getElementById('edit-hosts-textarea');
             const content = textarea.value;
             saveHostsBtn.disabled = true;
-            fetch('/api/save-hosts-content', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content })
-            })
-            .then(res => res.json())
+            api.post('/api/save-hosts-content', { content })
             .then(res => {
                 if (res && res.success) {
                     showToast(res.message || 'Hosts已保存', 'success');
@@ -352,7 +324,7 @@ function bindEvents() {
             showConfirmModal('确认操作', '确定要清空所有tracker吗？此操作不可恢复，建议先备份。', function onConfirm() {
                 btnClearAllTrackers.disabled = true;
                 showToast('正在清空所有tracker，请稍候...', 'info', 10000);
-                fetch('/api/clear-all-trackers', { method: 'POST' })
+                api.post('/api/clear-all-trackers', undefined, { timeout: 0 })
                     .then(response => response.json())
                     .then(data => {
                         showToast(data.message || '已清空所有tracker', 'success', 10000);
@@ -368,33 +340,13 @@ function bindEvents() {
             });
         });
     }
-    // ----- 自定义站点加速功能相关事件绑定 -----
-    const addCustomSiteBtn = document.getElementById('add-custom-site-btn');
-    if (addCustomSiteBtn) {
-        addCustomSiteBtn.addEventListener('click', addCustomAcceleratedSite);
-    }
-
-    const refreshCustomSitesBtn = document.getElementById('refresh-custom-sites-btn');
-    if (refreshCustomSitesBtn) {
-        refreshCustomSitesBtn.addEventListener('click', loadCustomAcceleratedSites);
-    }
-
-    // 监听自定义站点加速选项卡的显示事件
-    const customSitesTab = document.getElementById('custom-sites-tab');
-    if (customSitesTab) {
-        customSitesTab.addEventListener('shown.bs.tab', function (event) {
-            loadCustomAcceleratedSites();
-        });
-    }
-    // ----- 自定义站点加速功能相关事件绑定 END -----
 }
 
 // 加载控制面板数据
 function loadDashboard() {
     console.log('Loading dashboard data'); // 添加日志
     // 获取调度器状态
-    fetch('/api/scheduler-status')
-        .then(response => response.json())
+    api.get('/api/scheduler-status')
         .then(data => {
             const statusElement = document.getElementById('scheduler-status');
             const statusBadgeElement = document.getElementById('scheduler-status-badge');
@@ -455,11 +407,9 @@ function loadCloudflareConfig() {
         cloudflareConfig.cron || '0 0 * * *';
 }
 
-// 加载Trackers
+// 加载Trackers（重绘由 store.subscribe 统一负责）
 function loadTrackers() {
-    store.load().then(function (config) {
-        renderTrackerTable(config.trackers || []);
-    }).catch(function (error) {
+    store.load().catch(function (error) {
         console.error('加载Trackers失败:', error);
         showToast('加载Trackers失败: ' + error.message, 'danger', 10000);
     });
@@ -535,8 +485,7 @@ function deleteTracker(domain) {
             showToast('Tracker已删除', 'success');
             return store.load(true);
         })
-        .then(function (config) {
-            renderTrackerTable(config.trackers || []);
+        .then(function () {
             loadCurrentHosts();
         })
         .catch(function (error) {
@@ -547,9 +496,7 @@ function deleteTracker(domain) {
 
 // 加载Hosts源
 function loadHostsSources() {
-    store.load().then(function (config) {
-        renderHostsSourceTable(config.hosts_sources || []);
-    }).catch(function (error) {
+    store.load().catch(function (error) {
         console.error('加载Hosts源失败:', error);
         showToast('加载Hosts源失败: ' + error.message, 'danger', 10000);
     });
@@ -605,8 +552,7 @@ function bindHostsSourceEvents() {
 
 // 加载日志
 function loadLogs() {
-    fetch('/api/logs')
-        .then(response => response.json())
+    api.get('/api/logs')
         .then(data => {
             const logsElement = document.getElementById('logs');
             // 适配后端返回的带换行字符串
@@ -628,8 +574,7 @@ function loadLogs() {
 
 // 加载当前Hosts文件
 function loadCurrentHosts() {
-    fetch('/api/current-hosts')
-        .then(response => response.json())
+    api.get('/api/current-hosts')
         .then(data => {
             const hostsElement = document.getElementById('current-hosts');
             
@@ -648,18 +593,7 @@ function loadCurrentHosts() {
 // 删除Hosts源
 function deleteHostsSource(url) {
     showToast('正在删除Hosts源，请稍候...', 'info', 8000);
-    fetch(`/api/hosts-sources?url=${encodeURIComponent(url)}`, {
-        method: 'DELETE'
-    })
-        .then(response => {
-            if (response.ok) {
-                return response.json();
-            } else {
-                return response.json().then(data => {
-                    throw new Error(data.detail || '删除Hosts源失败');
-                });
-            }
-        })
+    api.del(`/api/hosts-sources?url=${encodeURIComponent(url)}`)
         .then(data => {
             showToast('Hosts源已删除', 'success');
             loadHostsSources();
@@ -673,30 +607,16 @@ function deleteHostsSource(url) {
 
 // showToast / showConfirmModal / showProgressModal 已迁至 core/ui.js
 // （ui.js 末尾保留了同名全局别名，现有调用点无需改动）
-// fetchWithTimeout工具函数，支持超时
-function fetchWithTimeout(resource, options = {}, timeout = 180000) {
-    return Promise.race([
-        fetch(resource, options),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('导入任务已提交，处理时间较长请耐心等待，稍后可刷新页面查看结果')), timeout))
-    ]);
-}
 
 // 批量添加Trackers
 function batchAddTrackers(domains, forceCloudflare = false) {
     showToast('正在批量添加域名...', 'info', 8000);
-    fetch('/api/batch-add-domains', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ domains })
-    })
-    .then(response => response.json())
+    api.post('/api/batch-add-domains', { domains }, { timeout: 0 })
     .then(async data => {
         // 新增：如forceCloudflare为true，批量写入白名单
         if (forceCloudflare && Array.isArray(domains)) {
             for (const d of domains) {
-                await fetch(`/api/cloudflare-domains?domain=${encodeURIComponent(d)}`, { method: 'POST' });
+                await api.post(`/api/cloudflare-domains?domain=${encodeURIComponent(d)}`);
             }
         }
         const status = data.status || (data.message.includes('成功') ? 'success' : 'warning');
@@ -724,23 +644,13 @@ function batchAddTrackers(domains, forceCloudflare = false) {
 // 运行CloudflareSpeedTest优选脚本
 function runCfstScript() {
     showToast('正在启动IP优选与Hosts更新任务...', 'info', 8000);
-    fetch('/api/run-cfst-script', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
-    })
-    .then(response => response.json())
+    api.post('/api/run-cfst-script', undefined, { timeout: 0 })
     .then(data => {
         showToast(data.message || 'IP优选任务已启动', 'success', 8000);
         // 延迟一段时间后，确保IP优选有足够时间完成
         setTimeout(() => {
             // 先调用更新hosts API
-            fetch('/api/update-hosts', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({})
-            })
-            .then(res => res.json())
+            api.post('/api/update-hosts', undefined, { timeout: 120000 })
             .then(hostData => {
                 showToast(hostData.message || 'Hosts文件已更新', 'success', 8000);
                 // 然后刷新界面显示
@@ -764,15 +674,7 @@ function runCfstScript() {
 function updateAllTrackersIp(ip) {
     showToast('正在更新所有Tracker的IP...', 'info', 8000);
     
-    fetch(`/api/update-all-trackers?ip=${encodeURIComponent(ip)}`, {
-        method: 'POST'
-    })
-    .then(response => {
-        if (!response.ok) {
-            throw new Error('更新所有Tracker的IP失败');
-        }
-        return response.json();
-    })
+    api.post(`/api/update-all-trackers?ip=${encodeURIComponent(ip)}`, undefined, { timeout: 0 })
     .then(data => {
         showToast(data.message || `已将所有Tracker的IP更新为 ${ip}`, 'success', 8000);
         
@@ -935,146 +837,3 @@ async function removeCloudflareDomain(domain) {
         showToast('移除失败: ' + error.message, 'danger');
     }
 }
-
-// ----- 自定义站点加速功能 ----- 
-function loadCustomAcceleratedSites() {
-    const listElement = document.getElementById('custom-sites-list');
-    const loadingElement = document.getElementById('custom-sites-loading');
-
-    if (!listElement || !loadingElement) return;
-
-    loadingElement.style.display = 'block'; // 显示加载提示
-    // 清空现有列表项（除了加载提示）
-    while (listElement.firstChild && listElement.firstChild !== loadingElement) {
-        listElement.removeChild(listElement.firstChild);
-    }
-    
-    fetch('/api/custom-accelerated-sites')
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(sites => {
-            loadingElement.style.display = 'none'; // 隐藏加载提示
-            listElement.innerHTML = ''; // 彻底清空，包括可能残留的loading
-            if (sites.length === 0) {
-                listElement.innerHTML = '<li class="list-group-item text-center text-muted p-3">暂无自定义加速站点。</li>';
-                return;
-            }
-            sites.forEach(site => {
-                const listItem = document.createElement('li');
-                listItem.className = 'list-group-item d-flex justify-content-between align-items-center';
-                listItem.textContent = site;
-
-                const deleteBtn = document.createElement('button');
-                deleteBtn.className = 'btn btn-danger btn-sm';
-                deleteBtn.innerHTML = '<i class="bi bi-trash"></i> 删除';
-                deleteBtn.onclick = function() { deleteCustomAcceleratedSite(site); };
-
-                listItem.appendChild(deleteBtn);
-                listElement.appendChild(listItem);
-            });
-        })
-        .catch(error => {
-            loadingElement.style.display = 'none';
-            listElement.innerHTML = '<li class="list-group-item text-center text-danger p-3">加载站点列表失败，请稍后重试。</li>';
-            console.error('加载自定义加速站点列表失败:', error);
-            showToast('加载自定义站点列表失败: ' + error.message, 'danger');
-        });
-}
-
-function addCustomAcceleratedSite() {
-    const domainInput = document.getElementById('custom-site-domain-input');
-    const feedbackElement = document.getElementById('add-custom-site-feedback');
-    const domain = domainInput.value.trim();
-
-    if (!domain) {
-        showToast('请输入要加速的站点域名', 'warning');
-        domainInput.classList.add('is-invalid');
-        if (feedbackElement) feedbackElement.innerHTML = '<div class="text-danger">域名不能为空。</div>';
-        return;
-    }
-    // 简单的域名格式校验
-    const domainRegex = /^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,6}$/;
-    if (!domainRegex.test(domain)) {
-        showToast('域名格式无效，请输入正确的域名，例如：mysite.example.com', 'warning');
-        domainInput.classList.add('is-invalid');
-        if (feedbackElement) feedbackElement.innerHTML = '<div class="text-danger">域名格式无效。</div>';
-        return;
-    }
-    domainInput.classList.remove('is-invalid');
-    if (feedbackElement) feedbackElement.innerHTML = '';
-
-    const formData = new FormData();
-    formData.append('domain', domain);
-
-    const addBtn = document.getElementById('add-custom-site-btn');
-    const originalBtnText = addBtn.innerHTML;
-    addBtn.disabled = true;
-    addBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 添加中...';
-
-    fetch('/api/custom-accelerated-sites', {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => {
-        if (response.status === 409) { // Conflict - Domain already exists
-            return response.json().then(err => { throw new Error(err.detail || '站点已存在'); });
-        }
-        if (!response.ok) {
-            return response.json().then(err => { throw new Error(err.detail || `HTTP error! status: ${response.status}`); });
-        }
-        return response.json();
-    })
-    .then(data => {
-        showSuccessModal('操作成功', data.message || `站点 ${domain} 已成功添加并触发hosts更新。`);
-        //showToast(data.message || `站点 ${domain} 已成功添加并触发hosts更新。`, 'success');
-        domainInput.value = ''; // 清空输入框
-        loadCustomAcceleratedSites(); // 刷新列表
-        loadCurrentHosts(); // 更新当前hosts显示
-    })
-    .catch(error => {
-        console.error('添加自定义加速站点失败:', error);
-        showErrorModal('添加失败', error.message || '添加站点时发生未知错误。');
-        //showToast('添加站点失败: ' + error.message, 'danger');
-        domainInput.classList.add('is-invalid');
-        if (feedbackElement) feedbackElement.innerHTML = `<div class="text-danger">${error.message}</div>`;
-    })
-    .finally(() => {
-        addBtn.disabled = false;
-        addBtn.innerHTML = originalBtnText;
-    });
-}
-
-function deleteCustomAcceleratedSite(domain) {
-    if (!confirm(`确定要删除加速站点 ${domain} 吗？`)) {
-        return;
-    }
-    showProgressModal(`正在删除站点 ${domain}...`);
-
-    fetch(`/api/custom-accelerated-sites/${encodeURIComponent(domain)}`, {
-        method: 'DELETE'
-    })
-    .then(response => {
-        if (!response.ok) {
-            return response.json().then(err => { throw new Error(err.detail || `HTTP error! status: ${response.status}`); });
-        }
-        return response.json();
-    })
-    .then(data => {
-        hideProgressModal();
-        showSuccessModal('操作成功', data.message || `站点 ${domain} 已成功删除并触发hosts更新。`);
-        //showToast(data.message || `站点 ${domain} 已成功删除并触发hosts更新。`, 'success');
-        loadCustomAcceleratedSites(); // 刷新列表
-        loadCurrentHosts(); // 更新当前hosts显示
-    })
-    .catch(error => {
-        hideProgressModal();
-        console.error(`删除自定义加速站点 ${domain} 失败:`, error);
-        showErrorModal('删除失败', error.message || `删除站点 ${domain} 时发生未知错误。`);
-        //showToast(`删除站点 ${domain} 失败: ` + error.message, 'danger');
-    });
-}
-// ----- 自定义站点加速功能 END -----

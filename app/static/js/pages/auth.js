@@ -223,14 +223,9 @@
         });
     }
 
-    async function fetchAuthConfig() {
-        try {
-            var config = await api.get('/api/config');
-            return (config && config.auth) ? config.auth : initialAuthConfig;
-        } catch (error) {
-            console.error('获取认证配置失败:', error);
-            return initialAuthConfig;
-        }
+    // 认证配置只在页面初始化时读取，直接用 store 里的缓存
+    function fetchAuthConfig() {
+        return store.section('auth', initialAuthConfig) || initialAuthConfig;
     }
 
     function showError(title, message, suggestion, retry) {
@@ -303,7 +298,7 @@
                     onDone: function () { window.location.replace(window.location.pathname); }
                 });
             } else {
-                var updated = await fetchAuthConfig();
+                var updated = fetchAuthConfig();
                 initialAuthConfig = updated;
                 store.patch({ auth: Object.assign({}, store.section('auth', {}), updated) })
                     .catch(function (e) { console.warn('同步认证配置到 store 失败', e); });
@@ -362,12 +357,4 @@
         fetchAuthConfig: fetchAuthConfig,
         initAuthSettings: initAuthSettings
     };
-
-    // 兼容现有调用点
-    global.validatePassword = validatePassword;
-    global.getErrorSuggestion = getErrorSuggestion;
-    global.saveAuthSettings = saveAuthSettings;
-    global.fetchAuthConfig = fetchAuthConfig;
-    global.setupPasswordValidation = setupPasswordValidation;
-    global.setupPasswordToggle = setupPasswordToggle;
 })(window);

@@ -44,7 +44,7 @@ function ajaxCompat(opts) {
     return window.api.request(opts.url, {
         method: method,
         body: body,
-        timeout: opts.timeout || 180000
+        timeout: (opts.timeout === undefined) ? 180000 : opts.timeout
     }).then(function (data) {
         if (typeof opts.success === 'function') opts.success(data, 'success', null);
         if (typeof opts.complete === 'function') opts.complete(null, 'success');
@@ -642,9 +642,10 @@ let _importBaselineDomains = null;
 
 // 取当前 tracker 域名集合
 function _fetchTrackerDomains() {
-    return fetch('/api/config')
-        .then(r => r.json())
-        .then(config => new Set((config.trackers || []).map(t => t.domain)));
+    // 导入后的轮询需要实时集合，强制回源
+    return store.load(true).then(function (config) {
+        return new Set((config.trackers || []).map(function (t) { return t.domain; }));
+    });
 }
 
 // 停止轮询

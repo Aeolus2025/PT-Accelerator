@@ -10,8 +10,9 @@
         options = options || {};
 
         var controller = new AbortController();
-        var timeout = options.timeout || DEFAULT_TIMEOUT;
-        var timer = setTimeout(function () { controller.abort(); }, timeout);
+        // 显式传 0 表示不设超时；未传才用默认值
+        var timeout = (options.timeout === undefined) ? DEFAULT_TIMEOUT : options.timeout;
+        var timer = timeout > 0 ? setTimeout(function () { controller.abort(); }, timeout) : null;
         var hasBody = options.body !== undefined && options.body !== null;
         var isForm = typeof FormData !== 'undefined' && options.body instanceof FormData;
 

@@ -562,17 +562,4 @@
         testSingleChannel: testSingleChannel,
         updateNotifyEnabled: updateNotifyEnabled
     };
-
-    // 兼容现有调用点
-    global.getChannelTypeName = getChannelTypeName;
-    global.loadNotifyConfig = loadNotifyConfig;
-    global.initNotifySettings = initNotifySettings;
-    global.bindNotifyEvents = bindNotifyEvents;
-    global.showChannelConfig = showChannelConfig;
-    global.openAddNotifyChannelModal = openAddNotifyChannelModal;
-    global.saveNotifyChannel = saveNotifyChannel;
-    global.editChannel = editChannel;
-    global.deleteChannel = global.notifyPage.deleteChannel;
-    global.testSingleChannel = testSingleChannel;
-    global.updateNotifyEnabled = updateNotifyEnabled;
 })(window);
