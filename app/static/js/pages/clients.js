@@ -6,6 +6,11 @@
 let currentClients = [];
 let supportedClientTypes = [];
 
+// 拼接进 HTML 属性前转义
+function escapeAttr(v) {
+    return ui.escapeHtml(v);
+}
+
 // 初始化下载器配置界面
 function initTorrentClientsUI() {
     console.log('初始化下载器客户端管理界面');
@@ -20,9 +25,43 @@ function initTorrentClientsUI() {
     bindTorrentClientEvents();
 }
 
+// $.ajax 兼容层：保留原回调形态（beforeSend / complete / status === "timeout"），底层走 api.request
+function ajaxCompat(opts) {
+    var method = (opts.type || 'GET').toUpperCase();
+    var hasData = opts.data !== undefined && opts.data !== null;
+
+    if (typeof opts.beforeSend === 'function') {
+        try { opts.beforeSend(); } catch (e) { console.error('beforeSend 异常', e); }
+    }
+
+    var body = null;
+    if (hasData) {
+        // 原代码传入的是已序列化的字符串，还原成对象再交给 api 层
+        try { body = typeof opts.data === 'string' ? JSON.parse(opts.data) : opts.data; }
+        catch (e) { body = opts.data; }
+    }
+
+    return window.api.request(opts.url, {
+        method: method,
+        body: body,
+        timeout: opts.timeout || 180000
+    }).then(function (data) {
+        if (typeof opts.success === 'function') opts.success(data, 'success', null);
+        if (typeof opts.complete === 'function') opts.complete(null, 'success');
+        return data;
+    }, function (err) {
+        var status = err && err.timeout ? 'timeout' : 'error';
+        if (typeof opts.error === 'function') {
+            opts.error({ status: (err && err.status) || 0, responseJSON: err && err.data }, status, err && err.message);
+        }
+        if (typeof opts.complete === 'function') opts.complete(null, status);
+        return null;
+    });
+}
+
 // 加载支持的客户端类型
 function loadSupportedClientTypes() {
-    $.ajax({
+    ajaxCompat({
         url: "/api/torrent-client-types",
         type: "GET",
         timeout: 10000,
@@ -42,7 +81,7 @@ function loadSupportedClientTypes() {
 // 加载下载器客户端配置
 function loadTorrentClients() {
     console.log('加载下载器客户端配置');
-    $.ajax({
+    ajaxCompat({
         url: "/api/torrent-clients",
         type: "GET",
         timeout: 10000,
@@ -122,16 +161,16 @@ function createClientCard(client, index) {
                     ${client.enable ? '<span class="badge bg-success ms-1">已启用</span>' : '<span class="badge bg-secondary ms-1">已禁用</span>'}
                 </div>
                 <div class="d-flex flex-row flex-wrap align-items-center gap-1">
-                    <button class="btn btn-sm btn-outline-success btn-import-tracker-single d-flex align-items-center text-nowrap" onclick="importTrackersFromClients('${client.id}')">
+                    <button class="btn btn-sm btn-outline-success btn-import-tracker-single d-flex align-items-center text-nowrap" data-action="import-trackers" data-client-id="${escapeAttr(client.id)}">
                         <i class="bi bi-cloud-download me-1"></i> 导入Tracker
                     </button>
-                    <button class="btn btn-sm btn-outline-info d-flex align-items-center text-nowrap" onclick="testClientConnection('${client.id}')">
+                    <button class="btn btn-sm btn-outline-info d-flex align-items-center text-nowrap" data-action="test-client" data-client-id="${escapeAttr(client.id)}">
                         <i class="bi bi-check-circle me-1"></i> 测试
                     </button>
-                    <button class="btn btn-sm btn-outline-primary d-flex align-items-center text-nowrap" onclick="editClient('${client.id}')">
+                    <button class="btn btn-sm btn-outline-primary d-flex align-items-center text-nowrap" data-action="edit-client" data-client-id="${escapeAttr(client.id)}">
                         <i class="bi bi-pencil me-1"></i> 编辑
                     </button>
-                    <button class="btn btn-sm btn-outline-danger d-flex align-items-center text-nowrap" onclick="deleteClient('${client.id}')">
+                    <button class="btn btn-sm btn-outline-danger d-flex align-items-center text-nowrap" data-action="delete-client" data-client-id="${escapeAttr(client.id)}">
                         <i class="bi bi-trash me-1"></i> 删除
                     </button>
                 </div>
@@ -168,26 +207,29 @@ function createClientCard(client, index) {
     `;
 }
 
-// 绑定事件
+// 绑定事件：initTorrentClientsUI 只在 DOMContentLoaded 跑一次，无需先解绑
 function bindTorrentClientEvents() {
-    // 先解绑所有相关事件，避免重复绑定
-    $(document).off('click', '#btn-add-client');
-    $(document).off('click', '#btn-import-trackers');
-    $(document).off('click', '#save-clients-btn');
-    
-    // 添加客户端
     $(document).on('click', '#btn-add-client', function() {
         showClientModal();
     });
-    
-    // 导入Tracker
+
     $(document).on('click', '#btn-import-trackers', function() {
         importTrackersFromClients();
     });
-    
-    // 保存所有配置
+
     $(document).on('click', '#save-clients-btn', function() {
         saveTorrentClients();
+    });
+
+    // 客户端卡片操作（委托到容器，卡片重渲染后无需重绑）
+    $(document).on('click', '[data-action]', '#torrent-clients-container', function() {
+        const clientId = this.dataset.clientId;
+        switch (this.dataset.action) {
+            case 'import-trackers': importTrackersFromClients(clientId); break;
+            case 'test-client': testClientConnection(clientId); break;
+            case 'edit-client': editClient(clientId); break;
+            case 'delete-client': deleteClient(clientId); break;
+        }
     });
 }
 
@@ -364,7 +406,7 @@ function testClientConnectionInModal() {
         return;
     }
     
-    $.ajax({
+    ajaxCompat({
         url: "/api/test-client-connection",
         type: "POST",
         contentType: "application/json",
@@ -476,7 +518,7 @@ function generateClientId(type) {
 function saveTorrentClients() {
     console.log('保存下载器客户端配置:', currentClients);
     
-    $.ajax({
+    ajaxCompat({
         url: "/api/torrent-clients",
         type: "POST",
         contentType: "application/json",
@@ -518,7 +560,7 @@ function testClientConnection(clientId) {
     
     console.log('测试客户端连接:', clientId, '客户端配置:', client);
     
-    $.ajax({
+    ajaxCompat({
         url: "/api/test-client-connection",
         type: "POST",
         contentType: "application/json",
@@ -572,7 +614,7 @@ function deleteClient(clientId) {
 
 // 执行删除客户端操作
 function performDeleteClient(clientId) {
-    $.ajax({
+    ajaxCompat({
         url: `/api/torrent-clients/${clientId}`,
         type: "DELETE",
         timeout: 10000,
@@ -689,7 +731,7 @@ function importTrackersFromClients(clientId) {
     const $singleBtn = single ? $(`.card[data-client-id="${clientId}"] .btn-import-tracker-single`) : null;
     const $globalBtn = $('#btn-import-trackers');
 
-    $.ajax({
+    ajaxCompat({
         url: "/api/import-trackers-from-clients" + (single ? "?client_id=" + encodeURIComponent(clientId) : ""),
         type: "POST",
         timeout: 30000,
