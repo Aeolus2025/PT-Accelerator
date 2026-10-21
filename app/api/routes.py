@@ -171,12 +171,19 @@ def get_config():
 @router.get("/config")
 async def get_config_api():
     """每次都从文件读取最新配置，防止内存与文件不同步导致tracker状态异常"""
-    if os.path.exists(CONFIG_PATH):
-        with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-            config = yaml.safe_load(f)
-        return config
-    else:
+    if not os.path.exists(CONFIG_PATH):
         return {}
+
+    with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+        config = yaml.safe_load(f) or {}
+
+    # auth.secret_key 是 session 的签名密钥，前端从不使用它。
+    # 一旦通过接口下发，任何能访问本服务的人都能用它离线伪造管理员会话。
+    auth_section = config.get("auth")
+    if isinstance(auth_section, dict):
+        auth_section.pop("secret_key", None)
+
+    return config
 
 # 更新配置（CRON表达式校验）
 @router.post("/config")

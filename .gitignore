@@ -113,9 +113,9 @@ nowip_hosts.txt
 .DS_Store
 .idea/
 
-# 本地开发进度文档（不纳入版本控制）
-TODO.md
-# 本地测试脚本（不纳入版本控制）
+# 本地开发进度文档
+docs/
+# 本地测试脚本
 tests/
 
 # 配置写锁
