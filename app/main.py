@@ -294,7 +294,22 @@ init_services(hosts_manager, cloudflare_service, scheduler_service, torrent_clie
 
 # 注册路由 - 在服务初始化之后导入
 from app.api.routes import router as api_router
+from app.api.routers import config as config_router
+from app.api.routers import auth as auth_router
+from app.api.routers import tasks as tasks_router
+from app.api.routers import sites as sites_router
+from app.api.routers import clients as clients_router
+from app.api.routers import notify as notify_router
+from app.api.routers import logs as logs_router
+
 app.include_router(api_router, prefix="/api")
+app.include_router(config_router.router, prefix="/api", tags=["config"])
+app.include_router(auth_router.router, prefix="/api", tags=["auth"])
+app.include_router(tasks_router.router, prefix="/api", tags=["tasks"])
+app.include_router(sites_router.router, prefix="/api", tags=["sites"])
+app.include_router(clients_router.router, prefix="/api", tags=["clients"])
+app.include_router(notify_router.router, prefix="/api", tags=["notify"])
+app.include_router(logs_router.router, prefix="/api", tags=["logs"])
 
 # 提供 favicon.ico 文件
 @app.get("/favicon.ico")

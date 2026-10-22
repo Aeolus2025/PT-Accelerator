@@ -102,7 +102,7 @@ class SchedulerService:
                         
                         # 发送定时任务完成通知
                         try:
-                            from app.api.routes import _send_task_notify
+                            from app.services.task_notify import _send_task_notify
                             logger.info(f"[定时任务通知] IP优选与Hosts更新 -> {msg}")
                             _send_task_notify("IP优选与Hosts更新", msg)
                         except Exception as notify_e:
@@ -115,7 +115,7 @@ class SchedulerService:
                         
                         # 发送定时任务失败通知
                         try:
-                            from app.api.routes import _send_task_notify
+                            from app.services.task_notify import _send_task_notify
                             logger.info(f"[定时任务通知] IP优选与Hosts更新 -> {error_msg}")
                             _send_task_notify("IP优选与Hosts更新", error_msg)
                         except Exception as notify_e:
