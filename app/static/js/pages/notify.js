@@ -68,10 +68,6 @@
         var method = (config.WEBHOOK_METHOD || '').toUpperCase();
         if (method) badges.push('<span class="badge bg-warning text-white me-2">' + ui.escapeHtml(method) + '</span>');
 
-        if (config.HITOKOTO) {
-            badges.push('<span class="badge bg-info text-white me-2"><i class="bi bi-stars"></i> 一言</span>');
-        }
-
         var url = config.WEBHOOK_URL || '';
         var urlLine = url
             ? '<div class="small mb-1 text-muted d-flex align-items-start">'
@@ -136,12 +132,6 @@
 
             var enabledEl = el('notifyEnabled');
             if (enabledEl) enabledEl.checked = !!notifyConfig.enable;
-
-            var hitokotoEl = el('notifyHitokoto');
-            if (hitokotoEl) {
-                hitokotoEl.checked = (typeof notifyConfig.hitokoto === 'undefined')
-                    ? true : !!notifyConfig.hitokoto;
-            }
 
             renderNotifyChannels(notifyConfig.channels || {});
         } catch (error) {
@@ -347,9 +337,6 @@
                 break;
         }
 
-        var hitokotoEl = el('channel-hitokoto');
-        if (hitokotoEl) data.HITOKOTO = !!hitokotoEl.checked;
-
         return data;
     }
 
@@ -420,9 +407,6 @@
                 if (node && !node.value) node.value = defaults[id];
             });
         }
-
-        var hitokotoEl = el('channel-hitokoto');
-        if (hitokotoEl) hitokotoEl.checked = !!ch.HITOKOTO;
     }
 
     async function saveNotifyChannel() {
@@ -543,8 +527,78 @@
     // ---------------------------------------------------------------- 初始化
 
     function initNotifySettings() {
-        loadNotifyConfig();
+        // 模板回填依赖通知配置加载完成，放在其后执行
+        loadNotifyConfig().then(loadNotifyTemplate).catch(function () {
+            loadNotifyTemplate();
+        });
         bindNotifyEvents();
+        bindNotifyTemplate();
+    }
+
+    function loadNotifyTemplate() {
+        var tpl = notifyStore.section('template', {}) || {};
+        var titleEl = el('notify-template-title');
+        var contentEl = el('notify-template-content');
+        if (titleEl) titleEl.value = tpl.title || '';
+        if (contentEl) contentEl.value = tpl.content || '';
+    }
+
+    function readNotifyTemplate() {
+        var titleEl = el('notify-template-title');
+        var contentEl = el('notify-template-content');
+        return {
+            title: (titleEl && titleEl.value) || '',
+            content: (contentEl && contentEl.value) || ''
+        };
+    }
+
+    function showTemplateError(msg) {
+        var box = el('notify-template-error');
+        if (!box) return;
+        if (!msg) {
+            box.classList.add('d-none');
+            box.textContent = '';
+            return;
+        }
+        box.textContent = msg;
+        box.classList.remove('d-none');
+    }
+
+    function bindNotifyTemplate() {
+        ui.delegate(document, 'click', '#btn-preview-template', function () {
+            var payload = readNotifyTemplate();
+            api.post('/api/notify/template/preview', payload)
+                .then(function (res) {
+                    if (!res || !res.success) throw new Error((res && res.message) || '预览失败');
+                    var errs = res.errors || {};
+                    var msgs = [];
+                    if (errs.title) msgs.push('标题: ' + errs.title);
+                    if (errs.content) msgs.push('内容: ' + errs.content);
+                    showTemplateError(msgs.join('；'));
+                    el('preview-title').textContent = res.title;
+                    el('preview-content').textContent = res.content;
+                    el('notify-template-preview').classList.remove('d-none');
+                })
+                .catch(function (e) { toast('预览失败: ' + e.message, 'danger'); });
+        });
+
+        ui.delegate(document, 'click', '#btn-save-template', function () {
+            notifyStore.patch({ template: readNotifyTemplate() })
+                .then(function () {
+                    showTemplateError('');
+                    toast('模板已保存', 'success');
+                })
+                .catch(function (e) { toast('保存失败: ' + e.message, 'danger'); });
+        });
+
+        ui.delegate(document, 'click', '#btn-reset-template', function () {
+            var titleEl = el('notify-template-title');
+            var contentEl = el('notify-template-content');
+            if (titleEl) titleEl.value = '';
+            if (contentEl) contentEl.value = '';
+            showTemplateError('');
+            toast('已清空，保存后恢复默认格式', 'info');
+        });
     }
 
     global.notifyPage = {

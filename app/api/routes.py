@@ -20,6 +20,7 @@ from app.services.torrent_clients import TorrentClientManager
 from datetime import datetime
 from app.models import Tracker, HostsSource, CloudflareConfig, TorrentClientConfig, BatchAddDomainsRequest, User, AuthConfig
 from app.utils import notify as notify_module
+from app.utils import notify_template
 from app.utils.file_utils import atomic_write_text
 
 # 从认证模块导入密码处理函数和依赖项
@@ -40,32 +41,13 @@ logger = logging.getLogger(__name__)
 # 工具函数：将通知配置展开并按每个启用渠道发送
 def _send_task_notify(title: str, content: str):
     try:
-        # 1) 根据任务类型美化标题（添加emoji）
-        title_map = {
-            "IP优选与Hosts更新": "🚀 IP优选与Hosts更新",
-            "仅更新Hosts": "🛠️ 仅更新Hosts",
-            "清空并更新Hosts": "🧹 清空并更新Hosts",
-        }
-        pretty_title = title_map.get(title, f"📣 {title}")
-
-        # 2) 根据内容判断成功/失败并加emoji
-        text = str(content or "")
-        success_markers = ["完成", "success", "已更新", "已完成", "成功"]
-        failed_markers = ["失败", "error", "异常"]
-        status_emoji = "ℹ️"
-        if any(m in text for m in success_markers):
-            status_emoji = "✅"
-        if any(m in text for m in failed_markers):
-            status_emoji = "❌"
-
-        # 3) 统一美化内容：状态 + 原始信息 + 时间
-        pretty_content = (
-            f"{status_emoji} {text}\n\n"
-            f"🕒 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        )
-
         cfg = get_config() or {}
         notify_cfg = copy.deepcopy(cfg.get("notify", {}))
+
+        # 标题与内容交给模板渲染，未配置模板时走内置默认格式
+        pretty_title, pretty_content = notify_template.render(
+            title, content, notify_cfg.get("template") or {}
+        )
         channels = notify_cfg.get("channels", {}) or {}
 
         def flatten_channel(ch_conf: Dict[str, Any]) -> Dict[str, Any]:
@@ -99,17 +81,6 @@ def _send_task_notify(title: str, content: str):
                         flat[k] = v
                 else:
                     flat[k] = v
-            
-            # 一言策略：优先渠道内配置，否则用全局
-            if "HITOKOTO" in ch_conf:
-                val = ch_conf.get("HITOKOTO")
-                if isinstance(val, bool):
-                    flat["HITOKOTO"] = "true" if val else "false"
-                else:
-                    flat["HITOKOTO"] = val
-            else:
-                global_hitokoto = notify_cfg.get("hitokoto", True)
-                flat["HITOKOTO"] = "true" if bool(global_hitokoto) else "false"
             return flat
 
         # 收集有效渠道
@@ -1138,7 +1109,12 @@ async def test_notify(payload: Dict[str, Any]):
         if not enable:
             return {"success": False, "message": "通知功能未启用"}
 
-        # 逐渠道发送：按每个启用渠道构建独立的kwargs，并为其设置独立的HITOKOTO
+        # 与任务通知共用同一套模板，保证测试所见即实际发送
+        title, content = notify_template.render(
+            title, content, notify_cfg.get("template") or {}
+        )
+
+        # 逐渠道发送：按每个启用渠道构建独立的kwargs
         channels = notify_cfg.get("channels", {}) or {}
         per_channel_payloads: list[Dict[str, Any]] = []
 
@@ -1148,17 +1124,6 @@ async def test_notify(payload: Dict[str, Any]):
                 if k in ("name", "type", "enable"):
                     continue
                 flat[k] = v
-            # 每渠道一言开关映射
-            if "HITOKOTO" in ch_conf:
-                val = ch_conf.get("HITOKOTO")
-                if isinstance(val, bool):
-                    flat["HITOKOTO"] = "true" if val else "false"
-                else:
-                    flat["HITOKOTO"] = val
-            else:
-                # 如果渠道内未显式设置，则回落到全局 notify.hitokoto（默认为 True）
-                global_hitokoto = notify_cfg.get("hitokoto", True)
-                flat["HITOKOTO"] = "true" if bool(global_hitokoto) else "false"
             return flat
 
         # 先收集已保存且启用的渠道（若没有前端嵌套覆盖，则使用；若有嵌套覆盖，仅使用覆盖）
@@ -1184,10 +1149,6 @@ async def test_notify(payload: Dict[str, Any]):
             else:
                 # 顶层键集合 -> 直接作为一次独立发送
                 tmp_flat = dict(channels_override)
-                if "HITOKOTO" in tmp_flat and isinstance(tmp_flat["HITOKOTO"], bool):
-                    tmp_flat["HITOKOTO"] = "true" if tmp_flat["HITOKOTO"] else "false"
-                elif "HITOKOTO" not in tmp_flat:
-                    tmp_flat["HITOKOTO"] = "true" if bool(notify_cfg.get("hitokoto", True)) else "false"
                 per_channel_payloads.append(tmp_flat)
 
         if use_saved_channels and isinstance(channels, dict):
@@ -1231,14 +1192,31 @@ async def test_notify(payload: Dict[str, Any]):
         if title in skip_titles:
             return {"success": True, "message": "标题在跳过列表中，未发送"}
 
-        # 分渠道依次发送（每次send只带该渠道相关字段，从而按渠道的HITOKOTO生效）
+        # 分渠道依次发送（每次send只带该渠道相关字段）
+        # 发送涉及外部请求与线程 join，放入线程池避免阻塞事件循环
         for flat in valid_payloads:
             # 测试发送时仅使用本渠道配置
-            notify_module.send(title, content, ignore_default_config=True, **flat)
+            await run_in_threadpool(
+                notify_module.send, title, content, True, **flat
+            )
         return {"success": True, "message": "测试通知请求已发出，请检查渠道接收情况"}
     except Exception as e:
         logger.error(f"测试通知发送失败: {str(e)}", exc_info=True)
         return {"success": False, "message": f"测试通知失败: {str(e)}"}
+
+
+@router.post("/notify/template/preview")
+async def preview_notify_template(payload: Dict[str, Any]):
+    """用样例数据渲染模板，供前端实时预览。不写配置、不发通知。"""
+    try:
+        title_tpl = str(payload.get("title") or "")
+        content_tpl = str(payload.get("content") or "")
+        result = notify_template.preview(title_tpl, content_tpl)
+        return {"success": True, **result}
+    except Exception as e:
+        logger.error(f"模板预览失败: {e}")
+        return {"success": False, "message": str(e)}
+
 
 # 从下载器导入Tracker
 @router.post("/import-trackers-from-clients")

@@ -153,7 +153,6 @@
         endpoint: '/api/notify/config',
         initial: {
             enable: false,
-            hitokoto: true,
             channels: {}
         },
         unwrap: function (raw) {
