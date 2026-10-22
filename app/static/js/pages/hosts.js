@@ -8,7 +8,7 @@
     function loadHostsSources() {
         store.load().catch(function (error) {
             console.error('加载Hosts源失败:', error);
-            toast('加载Hosts源失败: ' + error.message, 'danger', 10000);
+            ui.showToast('加载Hosts源失败: ' + error.message, 'danger', 10000);
         });
     }
 
@@ -32,16 +32,16 @@
     }
 
     function deleteHostsSource(url) {
-        toast('正在删除Hosts源，请稍候...', 'info', 8000);
+        ui.showToast('正在删除Hosts源，请稍候...', 'info', 8000);
         api.del('/api/hosts-sources?url=' + encodeURIComponent(url))
             .then(function () {
-                toast('Hosts源已删除', 'success');
+                ui.showToast('Hosts源已删除', 'success');
                 loadHostsSources();
                 loadCurrentHosts();
             })
             .catch(function (error) {
                 console.error('删除Hosts源失败:', error);
-                toast(error.message, 'danger', 10000);
+                ui.showToast(error.message, 'danger', 10000);
             });
     }
 
@@ -50,7 +50,7 @@
         var url = document.getElementById('hosts-source-url').value;
         var enable = document.getElementById('hosts-source-enable').checked;
         if (!name || !url) {
-            toast('请填写完整信息', 'warning', 8000);
+            ui.showToast('请填写完整信息', 'warning', 8000);
             return;
         }
         api.post('/api/hosts-sources', { name: name, url: url, enable: enable })
@@ -60,11 +60,11 @@
                 document.getElementById('add-hosts-source-form').reset();
                 loadHostsSources();
                 loadCurrentHosts();
-                toast('Hosts源已添加', 'success');
+                ui.showToast('Hosts源已添加', 'success');
             })
             .catch(function (error) {
                 console.error('添加Hosts源失败:', error);
-                toast(error.message, 'danger', 10000);
+                ui.showToast(error.message, 'danger', 10000);
             });
     }
 
@@ -92,22 +92,22 @@
     }
 
     function clearLogs(btn) {
-        confirmModal('确认操作', '确定要清空系统日志吗？此操作不可恢复。', function () {
+        ui.showConfirmModal('确认操作', '确定要清空系统日志吗？此操作不可恢复。', function () {
             btn.disabled = true;
             api.post('/api/logs/clear')
                 .then(function (res) {
                     if (res && res.success) {
-                        toast(res.message || '日志已清空', 'success');
+                        ui.showToast(res.message || '日志已清空', 'success');
                         var logsElement = document.getElementById('logs');
                         if (logsElement) logsElement.textContent = '';
                         loadLogs();
                     } else {
-                        toast((res && res.message) || '清空日志失败', 'danger');
+                        ui.showToast((res && res.message) || '清空日志失败', 'danger');
                     }
                 })
                 .catch(function (err) {
                     console.error('清空日志失败:', err);
-                    toast('清空日志失败: ' + err.message, 'danger');
+                    ui.showToast('清空日志失败: ' + err.message, 'danger');
                 })
                 .finally(function () {
                     btn.disabled = false;
@@ -134,7 +134,7 @@
     }
 
     function openHostsEditor() {
-        confirmModal('确认操作', '此操作将修改系统Hosts文件，如果你不知道接下来该干什么请取消！', function () {
+        ui.showConfirmModal('确认操作', '此操作将修改系统Hosts文件，如果你不知道接下来该干什么请取消！', function () {
             api.get('/api/current-hosts')
                 .then(function (data) {
                     var content = Array.isArray(data.hosts) ? data.hosts.join('') : (data.hosts || '');
@@ -144,7 +144,7 @@
                     modal.show();
                 })
                 .catch(function (err) {
-                    toast('加载当前hosts失败: ' + err.message, 'danger');
+                    ui.showToast('加载当前hosts失败: ' + err.message, 'danger');
                 });
         });
     }
@@ -156,16 +156,16 @@
         api.post('/api/save-hosts-content', { content: content })
             .then(function (res) {
                 if (res && res.success) {
-                    toast(res.message || 'Hosts已保存', 'success');
+                    ui.showToast(res.message || 'Hosts已保存', 'success');
                     loadCurrentHosts();
                     var modal = bootstrap.Modal.getInstance(document.getElementById('editHostsModal'));
                     if (modal) modal.hide();
                 } else {
-                    toast((res && res.message) || '保存失败', 'danger');
+                    ui.showToast((res && res.message) || '保存失败', 'danger');
                 }
             })
             .catch(function (err) {
-                toast('保存失败: ' + err.message, 'danger');
+                ui.showToast('保存失败: ' + err.message, 'danger');
             })
             .finally(function () {
                 btn.disabled = false;
@@ -181,13 +181,13 @@
                 var checked = el.checked;
                 store.patchArray('hosts_sources', 'url', url, { enable: checked })
                     .then(function () {
-                        toast('Hosts源已更新', 'success');
+                        ui.showToast('Hosts源已更新', 'success');
                         loadCurrentHosts();
                     })
                     .catch(function (error) {
                         el.checked = !checked;
                         console.error('更新Hosts源失败:', error);
-                        toast('更新Hosts源失败: ' + error.message, 'danger', 10000);
+                        ui.showToast('更新Hosts源失败: ' + error.message, 'danger', 10000);
                     });
             });
 
@@ -199,19 +199,19 @@
             });
         }
 
-        ui.delegate(document, 'click', '#save-hosts-source', function () {
+        ui.delegate(document, 'click', '#btn-save-hosts-source', function () {
             saveHostsSource();
         });
-        ui.delegate(document, 'click', '#refresh-logs', function () {
+        ui.delegate(document, 'click', '#btn-refresh-logs', function () {
             loadLogs();
         });
-        ui.delegate(document, 'click', '#clear-logs', function () {
+        ui.delegate(document, 'click', '#btn-clear-logs', function () {
             clearLogs(this);
         });
         ui.delegate(document, 'click', '#btn-edit-hosts', function () {
             openHostsEditor();
         });
-        ui.delegate(document, 'click', '#save-hosts-btn', function () {
+        ui.delegate(document, 'click', '#btn-save-hosts', function () {
             saveHostsContent(this);
         });
 

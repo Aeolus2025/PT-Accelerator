@@ -8,7 +8,7 @@
     function loadTrackers() {
         store.load().catch(function (error) {
             console.error('加载Trackers失败:', error);
-            toast('加载Trackers失败: ' + error.message, 'danger', 10000);
+            ui.showToast('加载Trackers失败: ' + error.message, 'danger', 10000);
         });
     }
 
@@ -35,7 +35,7 @@
     function deleteTracker(domain) {
         api.del('/api/trackers/' + encodeURIComponent(domain))
             .then(function () {
-                toast('Tracker已删除', 'success');
+                ui.showToast('Tracker已删除', 'success');
                 return store.load(true);
             })
             .then(function () {
@@ -43,7 +43,7 @@
             })
             .catch(function (error) {
                 console.error('删除Tracker失败:', error);
-                toast(error.message, 'danger', 10000);
+                ui.showToast(error.message, 'danger', 10000);
             });
     }
 
@@ -55,7 +55,7 @@
         var forceCloudflare = forceEl ? forceEl.checked : false;
 
         if (!name || !domain) {
-            toast('请填写完整信息', 'warning', 8000);
+            ui.showToast('请填写完整信息', 'warning', 8000);
             return;
         }
 
@@ -63,7 +63,7 @@
         var originalText = btn.textContent;
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 处理中...';
-        toast('正在添加Tracker，请稍候...', 'info', 8000);
+        ui.showToast('正在添加Tracker，请稍候...', 'info', 8000);
 
         api.post('/api/trackers?force_cloudflare=' + forceCloudflare, tracker)
             .then(function (data) {
@@ -71,11 +71,11 @@
                 if (modal) modal.hide();
                 document.getElementById('add-tracker-form').reset();
                 loadTrackers();
-                toast(data.message || 'Tracker已添加', 'success');
+                ui.showToast(data.message || 'Tracker已添加', 'success');
             })
             .catch(function (error) {
                 console.error('添加Tracker失败:', error);
-                toast(error.message, 'danger', 10000);
+                ui.showToast(error.message, 'danger', 10000);
             })
             .finally(function () {
                 btn.disabled = false;
@@ -99,7 +99,7 @@
             }).join('');
         } catch (error) {
             console.error('加载Cloudflare白名单失败:', error);
-            toast('加载失败: ' + error.message, 'danger');
+            ui.showToast('加载失败: ' + error.message, 'danger');
         }
     }
 
@@ -113,10 +113,10 @@
             await api.post('/api/cloudflare-domains?domain=' + encodeURIComponent(domain));
             input.value = '';
             loadCloudflareDomains();
-            toast('已添加到Cloudflare白名单', 'success');
+            ui.showToast('已添加到Cloudflare白名单', 'success');
         } catch (error) {
             console.error('添加Cloudflare白名单失败:', error);
-            toast('添加失败: ' + error.message, 'danger');
+            ui.showToast('添加失败: ' + error.message, 'danger');
         }
     }
 
@@ -124,10 +124,10 @@
         try {
             await api.del('/api/cloudflare-domains?domain=' + encodeURIComponent(domain));
             loadCloudflareDomains();
-            toast('已移除Cloudflare白名单', 'success');
+            ui.showToast('已移除Cloudflare白名单', 'success');
         } catch (error) {
             console.error('移除Cloudflare白名单失败:', error);
-            toast('移除失败: ' + error.message, 'danger');
+            ui.showToast('移除失败: ' + error.message, 'danger');
         }
     }
 
@@ -140,13 +140,13 @@
                 var checked = el.checked;
                 store.patchArray('trackers', 'domain', domain, { enable: checked })
                     .then(function () {
-                        toast('Tracker已更新', 'success');
+                        ui.showToast('Tracker已更新', 'success');
                         global.hostsPage.loadCurrentHosts();
                     })
                     .catch(function (error) {
                         el.checked = !checked;
                         console.error('更新Tracker失败:', error);
-                        toast('更新Tracker失败: ' + error.message, 'danger', 10000);
+                        ui.showToast('更新Tracker失败: ' + error.message, 'danger', 10000);
                     });
             });
 
@@ -158,7 +158,7 @@
             });
         }
 
-        ui.delegate(document, 'click', '#save-tracker', function () {
+        ui.delegate(document, 'click', '#btn-save-tracker', function () {
             saveTracker(this);
         });
 

@@ -43,7 +43,7 @@
     // ---------------------------------------------------------------- 渲染
 
     function renderNotifyChannels(channels) {
-        var container = el('notifyChannelsList');
+        var container = el('notify-channels-list');
         if (!container) return;
 
         if (!channels || Object.keys(channels).length === 0) {
@@ -130,13 +130,13 @@
         try {
             var notifyConfig = await notifyStore.load(true);
 
-            var enabledEl = el('notifyEnabled');
+            var enabledEl = el('notify-enabled');
             if (enabledEl) enabledEl.checked = !!notifyConfig.enable;
 
             renderNotifyChannels(notifyConfig.channels || {});
         } catch (error) {
             console.error('加载通知配置失败:', error);
-            toast('加载通知配置失败: ' + error.message, 'danger');
+            ui.showToast('加载通知配置失败: ' + error.message, 'danger');
         }
     }
 
@@ -147,16 +147,16 @@
         if (bindNotifyEvents.__bound) return;
         bindNotifyEvents.__bound = true;
 
-        var enabledEl = el('notifyEnabled');
+        var enabledEl = el('notify-enabled');
         if (enabledEl) enabledEl.addEventListener('change', updateNotifyEnabled);
 
-        var addBtn = el('add-notify-channel-btn');
+        var addBtn = el('btn-add-notify-channel');
         if (addBtn) addBtn.addEventListener('click', openAddNotifyChannelModal);
 
         var typeSelect = el('channel-type');
         if (typeSelect) typeSelect.addEventListener('change', showChannelConfig);
 
-        var saveBtn = el('save-notify-channel');
+        var saveBtn = el('btn-save-notify-channel');
         if (saveBtn) {
             saveBtn.addEventListener('click', function (e) {
                 try { e.currentTarget && e.currentTarget.blur && e.currentTarget.blur(); } catch (_) {}
@@ -164,7 +164,7 @@
             });
         }
 
-        var list = el('notifyChannelsList');
+        var list = el('notify-channels-list');
         if (!list) return;
 
         ui.delegate(list, 'change', '[data-action="toggle-channel"]', function () {
@@ -174,7 +174,7 @@
             setChannelEnabled(key, next).catch(function (error) {
                 input.checked = !next;
                 console.error('切换渠道状态失败:', error);
-                toast('操作失败: ' + error.message, 'danger');
+                ui.showToast('操作失败: ' + error.message, 'danger');
             });
         });
 
@@ -186,7 +186,7 @@
         });
         ui.delegate(list, 'click', '[data-action="delete-channel"]', function () {
             var key = this.dataset.key;
-            confirmModal('确认删除', '确定要删除这个通知渠道吗？', function () {
+            ui.showConfirmModal('确认删除', '确定要删除这个通知渠道吗？', function () {
                 performDeleteChannel(key);
             });
         });
@@ -202,16 +202,16 @@
     }
 
     async function updateNotifyEnabled() {
-        var input = el('notifyEnabled');
+        var input = el('notify-enabled');
         var enabled = input.checked;
 
         try {
             await notifyStore.patch({ enable: enabled });
-            toast('通知功能已' + (enabled ? '启用' : '禁用'), 'success');
+            ui.showToast('通知功能已' + (enabled ? '启用' : '禁用'), 'success');
         } catch (error) {
             console.error('更新通知状态失败:', error);
             input.checked = !enabled;
-            toast('更新失败: ' + error.message, 'danger');
+            ui.showToast('更新失败: ' + error.message, 'danger');
         }
     }
 
@@ -220,7 +220,7 @@
             if (!channels[channelKey]) throw new Error('未找到该通知渠道');
             channels[channelKey] = Object.assign({}, channels[channelKey], { enable: enabled });
         });
-        toast('渠道已' + (enabled ? '启用' : '禁用'), 'success');
+        ui.showToast('渠道已' + (enabled ? '启用' : '禁用'), 'success');
     }
 
     async function performDeleteChannel(channelKey) {
@@ -229,11 +229,11 @@
                 if (!channels[channelKey]) throw new Error('未找到该通知渠道');
                 delete channels[channelKey];
             });
-            toast('渠道已删除', 'success');
+            ui.showToast('渠道已删除', 'success');
             renderNotifyChannels(notifyStore.section('channels', {}));
         } catch (error) {
             console.error('删除渠道失败:', error);
-            toast('删除失败: ' + error.message, 'danger');
+            ui.showToast('删除失败: ' + error.message, 'danger');
         }
     }
 
@@ -246,7 +246,7 @@
         });
 
         if (!type) return;
-        var configId = (type === 'wecom_bot') ? 'wecom-config' : (type + '-config');
+        var configId = type.replace(/_/g, '-') + '-config';
         var target = el(configId);
         if (target) target.style.display = 'block';
     }
@@ -414,7 +414,7 @@
         var channelData = collectChannelData();
 
         if (!channelData.name) {
-            toast('请填写渠道名称', 'danger');
+            ui.showToast('请填写渠道名称', 'danger');
             return;
         }
 
@@ -426,7 +426,7 @@
                 channels[channelData.name] = channelData;
             });
 
-            toast('通知渠道已保存', 'success');
+            ui.showToast('通知渠道已保存', 'success');
 
             var modalEl = el('notifyChannelModal');
             if (modalEl && document.activeElement && modalEl.contains(document.activeElement)) {
@@ -443,7 +443,7 @@
             renderNotifyChannels(notifyStore.section('channels', {}));
         } catch (error) {
             console.error('保存通知渠道失败:', error);
-            toast('保存失败: ' + error.message, 'danger');
+            ui.showToast('保存失败: ' + error.message, 'danger');
         }
     }
 
@@ -451,7 +451,7 @@
         var channels = notifyStore.section('channels', {});
         var ch = channels[channelKey];
         if (!ch) {
-            toast('未找到该通知渠道', 'danger');
+            ui.showToast('未找到该通知渠道', 'danger');
             return;
         }
 
@@ -463,7 +463,7 @@
         showChannelConfig();
 
         var titleEl = el('notifyChannelModalLabel');
-        var saveBtn = el('save-notify-channel');
+        var saveBtn = el('btn-save-notify-channel');
         if (titleEl) titleEl.textContent = '编辑通知渠道';
         if (saveBtn) saveBtn.textContent = '更新';
 
@@ -478,7 +478,7 @@
         }
 
         var titleEl = el('notifyChannelModalLabel');
-        var saveBtn = el('save-notify-channel');
+        var saveBtn = el('btn-save-notify-channel');
         if (titleEl) titleEl.textContent = '添加通知渠道';
         if (saveBtn) saveBtn.textContent = '保存';
 
@@ -497,11 +497,11 @@
         try {
             var ch = notifyStore.section('channels', {})[channelKey];
             if (!ch) {
-                toast('渠道不存在', 'warning');
+                ui.showToast('渠道不存在', 'warning');
                 return;
             }
             if (!ch.enable) {
-                toast('该渠道未启用', 'warning');
+                ui.showToast('该渠道未启用', 'warning');
                 return;
             }
 
@@ -514,13 +514,13 @@
 
             var data = await api.post('/api/notify/test', payload);
             if (data && data.success) {
-                toast('测试通知已发送', 'success');
+                ui.showToast('测试通知已发送', 'success');
             } else {
                 throw new Error((data && data.message) || '发送失败');
             }
         } catch (error) {
             console.error('测试通知失败:', error);
-            toast('测试失败: ' + error.message, 'danger');
+            ui.showToast('测试失败: ' + error.message, 'danger');
         }
     }
 
@@ -579,16 +579,16 @@
                     el('preview-content').textContent = res.content;
                     el('notify-template-preview').classList.remove('d-none');
                 })
-                .catch(function (e) { toast('预览失败: ' + e.message, 'danger'); });
+                .catch(function (e) { ui.showToast('预览失败: ' + e.message, 'danger'); });
         });
 
         ui.delegate(document, 'click', '#btn-save-template', function () {
             notifyStore.patch({ template: readNotifyTemplate() })
                 .then(function () {
                     showTemplateError('');
-                    toast('模板已保存', 'success');
+                    ui.showToast('模板已保存', 'success');
                 })
-                .catch(function (e) { toast('保存失败: ' + e.message, 'danger'); });
+                .catch(function (e) { ui.showToast('保存失败: ' + e.message, 'danger'); });
         });
 
         ui.delegate(document, 'click', '#btn-reset-template', function () {
@@ -597,7 +597,7 @@
             if (titleEl) titleEl.value = '';
             if (contentEl) contentEl.value = '';
             showTemplateError('');
-            toast('已清空，保存后恢复默认格式', 'info');
+            ui.showToast('已清空，保存后恢复默认格式', 'info');
         });
     }
 
@@ -613,7 +613,7 @@
         saveNotifyChannel: saveNotifyChannel,
         editChannel: editChannel,
         deleteChannel: function (key) {
-            confirmModal('确认删除', '确定要删除这个通知渠道吗？', function () {
+            ui.showConfirmModal('确认删除', '确定要删除这个通知渠道吗？', function () {
                 performDeleteChannel(key);
             });
         },

@@ -1,20 +1,18 @@
 """站点与 Hosts 管理接口：Cloudflare 白名单、Tracker、hosts 源、hosts 更新与清空重建。"""
 
 import logging
-import os
 import re
 from urllib.parse import urlparse
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import yaml
-from pydantic import BaseModel
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 
 from app.api.deps import CONFIG_PATH, get_file_config
 from app.globals import get_hosts_manager
 from app.services import domain_service
 from app.services.hosts_manager import HostsManager
-from app.services.task_notify import _send_task_notify
+from app.services.task_notify import send_task_notify
 from app.utils.file_utils import atomic_write_text
 
 logger = logging.getLogger(__name__)
@@ -22,20 +20,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # 本模块内统一用这个名字读配置
-get_config = get_file_config
 
 
 # ===== Cloudflare白名单管理API =====
 
 @router.get("/cloudflare-domains")
 async def get_cloudflare_domains():
-    config = get_config()
+    config = get_file_config()
     domains = config.get("cloudflare_domains", [])
     return {"cloudflare_domains": domains}
 
 @router.post("/cloudflare-domains")
 async def add_cloudflare_domain(background_tasks: BackgroundTasks, domain: str = Query(..., description="要添加的Cloudflare域名")):
-    config = get_config()
+    config = get_file_config()
     domains = set(config.get("cloudflare_domains", []))
     domains.add(domain.strip().lower())
     config["cloudflare_domains"] = list(domains)
@@ -53,7 +50,7 @@ async def add_cloudflare_domain(background_tasks: BackgroundTasks, domain: str =
 
 @router.delete("/cloudflare-domains")
 async def delete_cloudflare_domain(background_tasks: BackgroundTasks, domain: str = Query(..., description="要删除的Cloudflare域名")):
-    config = get_config()
+    config = get_file_config()
     domains = set(config.get("cloudflare_domains", []))
     domains.discard(domain.strip().lower())
     config["cloudflare_domains"] = list(domains)
@@ -83,7 +80,7 @@ async def add_tracker(
             domain = re.sub(r"^https?://", "", domain, flags=re.IGNORECASE)
             domain = domain.split("/")[0]
             tracker["domain"] = domain
-        config = get_config()
+        config = get_file_config()
         if "trackers" not in config:
             config["trackers"] = []
         for existing in config["trackers"]:
@@ -131,7 +128,7 @@ async def delete_tracker(
     """删除Tracker"""
     try:
         # 更新配置
-        config = get_config()
+        config = get_file_config()
         if "trackers" not in config:
             raise HTTPException(status_code=404, detail="Tracker不存在")
         
@@ -181,7 +178,7 @@ async def add_hosts_source(
         if not parsed.scheme or not parsed.netloc:
             raise HTTPException(status_code=400, detail="Hosts源URL无效，请检查格式")
         source["url"] = url
-        config = get_config()
+        config = get_file_config()
         if "hosts_sources" not in config:
             config["hosts_sources"] = []
         for existing in config["hosts_sources"]:
@@ -218,7 +215,7 @@ async def delete_hosts_source(
 ):
     """删除hosts源"""
     try:
-        config = get_config()
+        config = get_file_config()
         if "hosts_sources" not in config:
             raise HTTPException(status_code=404, detail="hosts源不存在")
         config["hosts_sources"] = [s for s in config["hosts_sources"] if s["url"] != url]
@@ -258,7 +255,7 @@ async def update_hosts(
             status = hosts_manager.get_task_status() if hasattr(hosts_manager, 'get_task_status') else {}
             msg = status.get('message') if isinstance(status, dict) else ("更新完成" if ok else "更新失败")
             logger.info(f"[任务通知] 仅更新Hosts -> {msg}")
-            _send_task_notify("仅更新Hosts", msg)
+            send_task_notify("仅更新Hosts", msg)
         background_tasks.add_task(task)
         return {"message": "hosts更新任务已启动"}
     except Exception as e:
@@ -277,11 +274,6 @@ async def get_current_hosts(
         logger.error(f"获取hosts失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"获取hosts失败: {str(e)}")
 
-# ===== 添加新的模型和API端点 =====
-
-class DomainList(BaseModel):
-    domains: List[str]
-
 # 批量添加PT站点域名
 @router.post("/batch-add-domains")
 async def batch_add_domains(
@@ -299,7 +291,7 @@ async def batch_add_domains(
             return {"status": "warning", "message": "没有提供有效的域名"}
         
         # 读取当前配置
-        config = get_config()
+        config = get_file_config()
         if "trackers" not in config:
             config["trackers"] = []
             
@@ -367,7 +359,7 @@ async def run_cfst_script(
             status = hosts_manager.get_task_status() if hasattr(hosts_manager, 'get_task_status') else {}
             msg = status.get('message') if isinstance(status, dict) else ("执行完成" if ok else "执行失败")
             logger.info(f"[任务通知] IP优选与Hosts更新 -> {msg}")
-            _send_task_notify("IP优选与Hosts更新", msg)
+            send_task_notify("IP优选与Hosts更新", msg)
         background_tasks.add_task(combined_task)
         return {"message": "IP优选与Hosts更新任务已启动（严格串行）"}
     except Exception as e:
@@ -413,7 +405,7 @@ async def clear_and_update_hosts(
             status = hosts_manager.get_task_status() if hasattr(hosts_manager, 'get_task_status') else {}
             msg = status.get('message') if isinstance(status, dict) else ("更新完成" if ok else "更新失败")
             logger.info(f"[任务通知] 清空并更新Hosts -> {msg}")
-            _send_task_notify("清空并更新Hosts", msg)
+            send_task_notify("清空并更新Hosts", msg)
         background_tasks.add_task(task)
         return {"message": "已清理项目分区并启动更新任务（原有hosts内容已保留）"}
     except Exception as e:
@@ -427,7 +419,7 @@ async def clear_all_trackers(
 ):
     """清空所有tracker并同步更新hosts"""
     try:
-        config = get_config()
+        config = get_file_config()
         config["trackers"] = []
         atomic_write_text(CONFIG_PATH, yaml.dump(config, default_flow_style=False, allow_unicode=True))
         hosts_manager.update_config(config)

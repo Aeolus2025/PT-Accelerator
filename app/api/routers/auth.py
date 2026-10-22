@@ -7,7 +7,7 @@ import yaml
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 
 from app.api.deps import CONFIG_PATH, config_write_lock, get_file_config
-from app.api.routers.common import get_current_user
+from app.auth import get_current_user
 from app.auth import get_password_hash, verify_password
 from app.models import User
 from app.utils.file_utils import atomic_write_text

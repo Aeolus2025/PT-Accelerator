@@ -27,19 +27,19 @@
     }
 
     function setupPasswordValidation() {
-        var currentInput = el('currentPassword');
-        var newInput = el('newPassword');
-        var confirmInput = el('confirmPassword');
+        var currentInput = el('current-password');
+        var newInput = el('new-password');
+        var confirmInput = el('confirm-password');
         if (!currentInput || !newInput || !confirmInput) return;
 
         function needsCurrentPassword() {
-            var checkbox = el('enableAuth');
+            var checkbox = el('enable-auth');
             return !!(checkbox && checkbox.checked && initialAuthConfig && initialAuthConfig.password_hash);
         }
 
         function validateConfirm() {
-            var feedback = el('confirmPasswordFeedback');
-            var validFeedback = el('confirmPasswordValid');
+            var feedback = el('confirm-password-feedback');
+            var validFeedback = el('confirm-password-valid');
             var value = confirmInput.value;
 
             if (!value) {
@@ -64,9 +64,9 @@
 
         newInput.addEventListener('input', function () {
             var password = this.value;
-            var feedback = el('newPasswordFeedback');
-            var validFeedback = el('newPasswordValid');
-            var currentFeedback = el('currentPasswordFeedback');
+            var feedback = el('new-password-feedback');
+            var validFeedback = el('new-password-valid');
+            var currentFeedback = el('current-password-feedback');
 
             if (!password) {
                 this.classList.remove('is-valid', 'is-invalid');
@@ -108,7 +108,7 @@
         confirmInput.addEventListener('input', validateConfirm);
 
         currentInput.addEventListener('input', function () {
-            var feedback = el('currentPasswordFeedback');
+            var feedback = el('current-password-feedback');
 
             if (!this.value && newInput.value && needsCurrentPassword()) {
                 this.classList.add('is-invalid');
@@ -123,9 +123,9 @@
 
     function setupPasswordToggle() {
         [
-            ['toggleCurrentPassword', 'currentPassword'],
-            ['toggleNewPassword', 'newPassword'],
-            ['toggleConfirmPassword', 'confirmPassword']
+            ['toggle-current-password', 'current-password'],
+            ['toggle-new-password', 'new-password'],
+            ['toggle-confirm-password', 'confirm-password']
         ].forEach(function (pair) {
             var btn = el(pair[0]);
             var input = el(pair[1]);
@@ -188,9 +188,9 @@
     // ---------------------------------------------------------------- 保存
 
     function updateAuthUI(authConfig) {
-        var checkbox = el('enableAuth');
-        var fields = el('authFields');
-        var username = el('authUsername');
+        var checkbox = el('enable-auth');
+        var fields = el('auth-fields');
+        var username = el('auth-username');
 
         if (checkbox) checkbox.checked = !!authConfig.enable;
         if (username) username.value = authConfig.username || '';
@@ -205,9 +205,9 @@
 
     function clearPasswordFields() {
         [
-            ['currentPassword', 'currentPasswordFeedback', null],
-            ['newPassword', 'newPasswordFeedback', 'newPasswordValid'],
-            ['confirmPassword', 'confirmPasswordFeedback', 'confirmPasswordValid']
+            ['current-password', 'current-password-feedback', null],
+            ['new-password', 'new-password-feedback', 'new-password-valid'],
+            ['confirm-password', 'confirm-password-feedback', 'confirm-password-valid']
         ].forEach(function (triple) {
             var input = el(triple[0]);
             var feedback = el(triple[1]);
@@ -230,19 +230,19 @@
 
     function showError(title, message, suggestion, retry) {
         console.error(title, message);
-        toast(message, 'danger');
-        errorModal(title, message, suggestion || '', !!retry, retry || null);
+        ui.showToast(message, 'danger');
+        ui.showErrorModal(title, message, suggestion || '', !!retry, retry || null);
     }
 
     async function saveAuthSettings() {
-        var form = el('authSettingsForm');
+        var form = el('auth-settings-form');
         if (!form) return;
 
         var formData = new FormData(form);
         var newPassword = formData.get('new_password');
         var confirmPassword = formData.get('confirm_password');
         var currentPassword = formData.get('current_password');
-        var checkbox = el('enableAuth');
+        var checkbox = el('enable-auth');
 
         if (newPassword) {
             if (!validatePassword(newPassword).valid) {
@@ -255,7 +255,7 @@
             }
             if (checkbox && checkbox.checked && initialAuthConfig.password_hash && !currentPassword) {
                 showError('身份验证需要', '修改密码需要输入当前密码', getErrorSuggestion('需要提供当前密码'));
-                var currentInput = el('currentPassword');
+                var currentInput = el('current-password');
                 if (currentInput) currentInput.focus();
                 return;
             }
@@ -270,7 +270,7 @@
             formData.delete('current_password');
         }
 
-        var saveButton = el('save-auth-settings');
+        var saveButton = el('btn-save-auth-settings');
         var originalText = saveButton ? saveButton.innerHTML : '';
         if (saveButton) {
             saveButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>保存中...';
@@ -290,9 +290,9 @@
                 || msg.indexOf('已自动登出') !== -1;
 
             if (needReload) {
-                var fields = el('authFields');
+                var fields = el('auth-fields');
                 if (fields) fields.classList.add('d-none');
-                successModal('设置更新成功', successMsg, '', {
+                ui.showSuccessModal('设置更新成功', successMsg, '', {
                     countdown: 10,
                     confirmText: '立即刷新',
                     onDone: function () { window.location.replace(window.location.pathname); }
@@ -303,10 +303,10 @@
                 store.patch({ auth: Object.assign({}, store.section('auth', {}), updated) })
                     .catch(function (e) { console.warn('同步认证配置到 store 失败', e); });
                 updateAuthUI(updated);
-                successModal('设置更新成功', successMsg);
+                ui.showSuccessModal('设置更新成功', successMsg);
             }
 
-            toast(successMsg, 'success');
+            ui.showToast(successMsg, 'success');
             clearPasswordFields();
         } catch (error) {
             var message = (error && error.message) || String(error) || '请求失败';
@@ -328,8 +328,8 @@
 
         initialAuthConfig = store.section('auth', {}) || {};
 
-        var checkbox = el('enableAuth');
-        var fields = el('authFields');
+        var checkbox = el('enable-auth');
+        var fields = el('auth-fields');
         if (checkbox && fields) {
             updateAuthUI(initialAuthConfig);
 
@@ -345,7 +345,7 @@
         setupPasswordValidation();
         setupPasswordToggle();
 
-        var saveButton = el('save-auth-settings');
+        var saveButton = el('btn-save-auth-settings');
         if (saveButton) {
             saveButton.addEventListener('click', function (e) {
                 e.preventDefault();

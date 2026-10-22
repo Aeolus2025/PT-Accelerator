@@ -1,8 +1,6 @@
 import logging
 import requests
-import json
-import time
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional
 import traceback
 
 logger = logging.getLogger(__name__)

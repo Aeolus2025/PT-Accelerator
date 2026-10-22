@@ -124,8 +124,8 @@
 
     function showConfirmModal(title, message, onConfirm) {
         var titleEl = document.getElementById('confirmModalLabel');
-        var messageEl = document.getElementById('confirmMessage');
-        var okBtn = document.getElementById('confirmOkBtn');
+        var messageEl = document.getElementById('confirm-message');
+        var okBtn = document.getElementById('btn-confirm-ok');
         var modalEl = document.getElementById('confirmModal');
 
         if (!titleEl || !messageEl || !okBtn || !modalEl) {
@@ -216,9 +216,9 @@
 
     function showErrorModal(title, message, suggestion, showRetry, retryCallback) {
         var labelEl = document.getElementById('errorModalLabel');
-        var messageEl = document.getElementById('errorMessage');
-        var suggestionEl = document.getElementById('errorSuggestion');
-        var retryBtn = document.getElementById('errorRetryBtn');
+        var messageEl = document.getElementById('error-message');
+        var suggestionEl = document.getElementById('error-suggestion');
+        var retryBtn = document.getElementById('btn-error-retry');
         var modalEl = document.getElementById('errorModal');
         if (!labelEl || !messageEl || !modalEl) return;
 
@@ -252,10 +252,10 @@
         options = options || {};
 
         var labelEl = document.getElementById('successModalLabel');
-        var messageEl = document.getElementById('successMessage');
-        var noteEl = document.getElementById('successNote');
-        var confirmBtn = document.getElementById('successModalConfirmBtn');
-        var countdownEl = document.getElementById('successCountdown');
+        var messageEl = document.getElementById('success-message');
+        var noteEl = document.getElementById('success-note');
+        var confirmBtn = document.getElementById('btn-success-modal-confirm');
+        var countdownEl = document.getElementById('success-countdown');
         var modalEl = document.getElementById('successModal');
         if (!labelEl || !messageEl || !modalEl) return;
 
@@ -328,12 +328,4 @@
         showSuccessModal: showSuccessModal,
         showErrorModal: showErrorModal
     };
-
-    // 全局简写，各模块统一使用
-    global.toast = showToast;
-    global.confirmModal = showConfirmModal;
-    global.successModal = showSuccessModal;
-    global.errorModal = showErrorModal;
-    global.showProgressModal = showProgressModal;
-    global.hideProgressModal = hideProgressModal;
 })(window);

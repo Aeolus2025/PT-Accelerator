@@ -4,9 +4,7 @@ import os
 import platform
 import requests
 import subprocess
-import threading
-from typing import Dict, List, Any, Optional, Tuple
-from python_hosts import Hosts, HostsEntry
+from typing import Dict, List, Any, Tuple
 import time
 import hashlib
 import yaml
@@ -14,6 +12,8 @@ import re
 import socket
 import urllib3
 import json
+
+from app.utils import config_io
 
 
 logger = logging.getLogger(__name__)
@@ -83,17 +83,7 @@ class HostsManager:
         """将局部更新安全合并写回 config/config.yaml，避免覆盖其它未修改配置"""
         config_path = os.path.join("config", "config.yaml")
         try:
-            current = {}
-            if os.path.exists(config_path):
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    try:
-                        current = yaml.safe_load(f) or {}
-                    except Exception:
-                        current = {}
-            # 合并：以 current 为基础，仅覆盖传入的键
-            current.update(partial_update or {})
-            with open(config_path, 'w', encoding='utf-8') as f:
-                yaml.dump(current, f, default_flow_style=False, allow_unicode=True)
+            current = config_io.merge_write_config(config_path, partial_update or {})
             # 内存中的 self.config 同步为合并后的结果
             self.config = current
             # 同步全局 config 对象（若存在）
@@ -638,14 +628,16 @@ class HostsManager:
         if not self.config.get("trackers"):
             return
         
+        changed = False
         for tracker in self.config["trackers"]:
-            if tracker.get("enable"):
+            if tracker.get("enable") and tracker.get("ip") != ip:
                 tracker["ip"] = ip
+                changed = True
                 logger.info(f"更新tracker {tracker.get('domain')} 的IP为 {ip}")
         
-        # 保存配置
-        with open("config/config.yaml", 'w', encoding='utf-8') as f:
-            yaml.dump(self.config, f, default_flow_style=False, allow_unicode=True)
+        # 全量写盘会覆盖并发改动，走 merge 只提交 trackers
+        if changed:
+            self._merge_write_config({"trackers": self.config.get("trackers", [])})
             
         # 同步更新全局config对象，确保前端API获取到最新数据
         try:

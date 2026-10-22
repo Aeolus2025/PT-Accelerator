@@ -16,7 +16,7 @@ from typing import Optional
 
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.services.cloudflare_speed_test import CloudflareSpeedTestService
+from app.services.cfst_service import CloudflareSpeedTestService
 from app.services.hosts_manager import HostsManager
 from app.services.scheduler import SchedulerService
 from app.services.torrent_clients import TorrentClientManager
@@ -49,11 +49,6 @@ CONFIG_PATH = "config/config.yaml"
 DEFAULT_CLOUDFLARE_IP = "104.16.91.215"
 
 # 预装的外部 hosts 源：全部默认关闭，用户可在 UI「Hosts源」页按需勾选启用。
-# 入选标准（2026-10-19 实测）：源站可直连、响应内容含真实域名条目、不依赖第三方加速代理。
-# 被排除的上游默认源及原因：
-#   - TMDB（Gitee源）gitee.com/nirvanaalex/hosts：源已停更，仅返回注释头和 localhost 条目，解析出 0 条
-#   - TMDB（GitHub源1/2）、GitHub&TMDB（GitHub源3）、GitHub520：经 ghfast.top 第三方代理中转，
-#     代理随时可能停摆；确有需要可自行在 UI 手动添加，并自行评估代理可靠性
 HOSTS_SOURCE_PRESETS = [
     {
         "name": "GitHub（Gitlab源）",
@@ -293,7 +288,6 @@ from app.globals import init_services
 init_services(hosts_manager, cloudflare_service, scheduler_service, torrent_client_manager, config)
 
 # 注册路由 - 在服务初始化之后导入
-from app.api.routes import router as api_router
 from app.api.routers import config as config_router
 from app.api.routers import auth as auth_router
 from app.api.routers import tasks as tasks_router
@@ -302,7 +296,6 @@ from app.api.routers import clients as clients_router
 from app.api.routers import notify as notify_router
 from app.api.routers import logs as logs_router
 
-app.include_router(api_router, prefix="/api")
 app.include_router(config_router.router, prefix="/api", tags=["config"])
 app.include_router(auth_router.router, prefix="/api", tags=["auth"])
 app.include_router(tasks_router.router, prefix="/api", tags=["tasks"])

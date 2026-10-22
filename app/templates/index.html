@@ -24,7 +24,7 @@
             </div>
         </div>
         
-        <ul class="nav nav-tabs" id="mainTab" role="tablist">
+        <ul class="nav nav-tabs" id="main-tab" role="tablist">
             <li class="nav-item" role="presentation">
                 <button class="nav-link active" id="dashboard-tab" data-bs-toggle="tab" data-bs-target="#dashboard" type="button" role="tab" aria-controls="dashboard" aria-selected="true">
                     <i class="bi bi-house-door me-1"></i>控制面板
@@ -62,7 +62,7 @@
             </li>
         </ul>
         
-        <div class="tab-content" id="mainTabContent">
+        <div class="tab-content" id="main-tab-content">
             <!-- 控制面板 -->
             <div class="tab-pane fade show active" id="dashboard" role="tabpanel" aria-labelledby="dashboard-tab">
                 <div class="row">
@@ -127,7 +127,7 @@
                                 </div>
                                 
                                 <div class="col-12 mt-3">
-                                    <button type="submit" class="btn btn-primary" id="save-cloudflare-btn">
+                                    <button type="submit" class="btn btn-primary" id="btn-save-cloudflare">
                                         <i class="bi bi-save me-1"></i>保存配置
                                         <span class="spinner-border spinner-border-sm d-none" id="cloudflare-spinner" role="status" aria-hidden="true"></span>
                                     </button>
@@ -263,10 +263,10 @@
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h5 class="mb-0"><i class="bi bi-journal-text me-2"></i>系统日志</h5>
                     <div class="d-flex gap-2">
-                        <button id="refresh-logs" class="btn btn-secondary action-btn">
+                        <button id="btn-refresh-logs" class="btn btn-secondary action-btn">
                             <i class="bi bi-arrow-clockwise me-1"></i>刷新日志
                         </button>
-                        <button id="clear-logs" class="btn btn-danger action-btn">
+                        <button id="btn-clear-logs" class="btn btn-danger action-btn">
                             <i class="bi bi-trash me-1"></i>清空日志
                         </button>
                     </div>
@@ -286,18 +286,18 @@
                             <div class="card-header d-flex justify-content-between align-items-center">
                                 <span>通知设置</span>
                                 <div class="form-check form-switch">
-                                    <input class="form-check-input" type="checkbox" id="notifyEnabled">
-                                    <label class="form-check-label ms-2" for="notifyEnabled">
+                                    <input class="form-check-input" type="checkbox" id="notify-enabled">
+                                    <label class="form-check-label ms-2" for="notify-enabled">
                                         启用通知
                                     </label>
                                 </div>
                             </div>
                             <div class="card-body">
-                                <div id="notifyChannelsList">
+                                <div id="notify-channels-list">
                                     <!-- 通知渠道列表将在这里动态加载 -->
                                 </div>
                                 <div class="mt-3">
-                                    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#notifyChannelModal" id="add-notify-channel-btn">
+                                    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#notifyChannelModal" id="btn-add-notify-channel">
                                         <i class="bi bi-plus-circle me-1"></i>添加通知渠道
                                     </button>
                                 </div>
@@ -342,13 +342,13 @@
                 <!-- 通知模板（折叠） -->
                 <div class="card mt-3">
                     <div class="card-header d-flex justify-content-between align-items-center"
-                         data-bs-toggle="collapse" data-bs-target="#notifyTemplatePanel"
-                         role="button" aria-expanded="false" aria-controls="notifyTemplatePanel"
+                         data-bs-toggle="collapse" data-bs-target="#notify-template-panel"
+                         role="button" aria-expanded="false" aria-controls="notify-template-panel"
                          style="cursor: pointer;">
                         <span><i class="bi bi-code-square me-1"></i>通知模板（Jinja2）</span>
                         <i class="bi bi-chevron-down"></i>
                     </div>
-                    <div class="collapse" id="notifyTemplatePanel">
+                    <div class="collapse" id="notify-template-panel">
                         <div class="card-body">
                             <p class="small text-muted mb-2">
                                 支持 Jinja2 语法，留空则使用默认格式。可用变量：
@@ -395,7 +395,7 @@
                 <div class="card">
                     <div class="card-header">登录认证设置</div>
                     <div class="card-body">
-                        <form id="authSettingsForm">
+                        <form id="auth-settings-form">
                             <div class="alert alert-info" role="alert">
                                 启用登录认证后，所有访问此控制面板的操作都需要验证身份。
                                 {% if not config.auth.password_hash %}
@@ -404,55 +404,55 @@
                             </div>
 
                             <div class="form-check form-switch mb-3">
-                                <input class="form-check-input" type="checkbox" role="switch" id="enableAuth" name="enable_auth" {% if config.auth.enable %}checked{% endif %}>
-                                <label class="form-check-label" for="enableAuth">启用登录认证</label>
+                                <input class="form-check-input" type="checkbox" role="switch" id="enable-auth" name="enable_auth" {% if config.auth.enable %}checked{% endif %}>
+                                <label class="form-check-label" for="enable-auth">启用登录认证</label>
                             </div>
 
-                            <div id="authFields" class="{% if not config.auth.enable %}d-none{% endif %}">
+                            <div id="auth-fields" class="{% if not config.auth.enable %}d-none{% endif %}">
                                 <div class="mb-3">
-                                    <label for="authUsername" class="form-label">用户名</label>
-                                    <input type="text" class="form-control" id="authUsername" name="username" value="{{ config.auth.username }}">
+                                    <label for="auth-username" class="form-label">用户名</label>
+                                    <input type="text" class="form-control" id="auth-username" name="username" value="{{ config.auth.username }}">
                                 </div>
                                 <hr>
                                 <h5 class="mb-3">修改密码</h5>
                                  <div class="mb-3">
-                                    <label for="currentPassword" class="form-label">当前密码</label>
+                                    <label for="current-password" class="form-label">当前密码</label>
                                     <div class="input-group has-validation">
-                                        <input type="password" class="form-control" id="currentPassword" name="current_password" placeholder="如需修改密码，请输入当前密码">
+                                        <input type="password" class="form-control" id="current-password" name="current_password" placeholder="如需修改密码，请输入当前密码">
                                         <span class="input-group-text">
-                                            <i class="bi bi-eye" id="toggleCurrentPassword" style="cursor: pointer;"></i>
+                                            <i class="bi bi-eye" id="toggle-current-password" style="cursor: pointer;"></i>
                                         </span>
-                                        <div id="currentPasswordFeedback" class="invalid-feedback"></div>
+                                        <div id="current-password-feedback" class="invalid-feedback"></div>
                                     </div>
                                     <div class="form-text">首次设置密码时无需输入当前密码。</div>
                                 </div>
                                 <div class="mb-3">
-                                    <label for="newPassword" class="form-label">新密码</label>
+                                    <label for="new-password" class="form-label">新密码</label>
                                     <div class="input-group has-validation">
-                                        <input type="password" class="form-control" id="newPassword" name="new_password" placeholder="输入新密码（至少8位字符）">
+                                        <input type="password" class="form-control" id="new-password" name="new_password" placeholder="输入新密码（至少8位字符）">
                                         <span class="input-group-text">
-                                            <i class="bi bi-eye" id="toggleNewPassword" style="cursor: pointer;"></i>
+                                            <i class="bi bi-eye" id="toggle-new-password" style="cursor: pointer;"></i>
                                         </span>
-                                        <div id="newPasswordFeedback" class="invalid-feedback"></div>
-                                        <div id="newPasswordValid" class="valid-feedback">密码强度良好</div>
+                                        <div id="new-password-feedback" class="invalid-feedback"></div>
+                                        <div id="new-password-valid" class="valid-feedback">密码强度良好</div>
                                     </div>
                                     <div class="form-text">
                                         <small>密码要求：至少8位字符，建议包含大小写字母、数字和特殊字符</small>
                                     </div>
                                 </div>
                                 <div class="mb-3">
-                                    <label for="confirmPassword" class="form-label">确认新密码</label>
+                                    <label for="confirm-password" class="form-label">确认新密码</label>
                                     <div class="input-group has-validation">
-                                        <input type="password" class="form-control" id="confirmPassword" name="confirm_password" placeholder="再次输入新密码">
+                                        <input type="password" class="form-control" id="confirm-password" name="confirm_password" placeholder="再次输入新密码">
                                         <span class="input-group-text">
-                                            <i class="bi bi-eye" id="toggleConfirmPassword" style="cursor: pointer;"></i>
+                                            <i class="bi bi-eye" id="toggle-confirm-password" style="cursor: pointer;"></i>
                                         </span>
-                                        <div id="confirmPasswordFeedback" class="invalid-feedback">密码不匹配</div>
-                                        <div id="confirmPasswordValid" class="valid-feedback">密码匹配</div>
+                                        <div id="confirm-password-feedback" class="invalid-feedback">密码不匹配</div>
+                                        <div id="confirm-password-valid" class="valid-feedback">密码匹配</div>
                                     </div>
                                 </div>
                             </div>
-                            <button type="button" class="btn btn-primary" id="save-auth-settings">
+                            <button type="button" class="btn btn-primary" id="btn-save-auth-settings">
                                 <i class="bi bi-save"></i> 保存认证设置
                             </button>
                         </form>
@@ -499,8 +499,8 @@
                             <i class="bi bi-x-circle-fill text-danger fs-4 me-3"></i>
                         </div>
                         <div class="flex-grow-1">
-                            <p class="mb-0" id="errorMessage">发生了未知错误</p>
-                            <div id="errorSuggestion" class="mt-2 text-muted small"></div>
+                            <p class="mb-0" id="error-message">发生了未知错误</p>
+                            <div id="error-suggestion" class="mt-2 text-muted small"></div>
                         </div>
                     </div>
                 </div>
@@ -508,7 +508,7 @@
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
                         <i class="bi bi-x-lg me-1"></i>关闭
                     </button>
-                    <button type="button" class="btn btn-outline-primary" id="errorRetryBtn" style="display: none;">
+                    <button type="button" class="btn btn-outline-primary" id="btn-error-retry" style="display: none;">
                         <i class="bi bi-arrow-repeat me-1"></i>重试
                     </button>
                 </div>
@@ -524,10 +524,10 @@
                     <h5 class="modal-title" id="confirmModalLabel">确认操作</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <div class="modal-body" id="confirmMessage">确定要执行此操作吗？</div>
+                <div class="modal-body" id="confirm-message">确定要执行此操作吗？</div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                    <button type="button" class="btn btn-primary" id="confirmOkBtn">确定</button>
+                    <button type="button" class="btn btn-primary" id="btn-confirm-ok">确定</button>
                 </div>
             </div>
         </div>
@@ -549,7 +549,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                    <button type="button" class="btn btn-primary" id="save-hosts-btn"><i class="bi bi-save me-1"></i>保存</button>
+                    <button type="button" class="btn btn-primary" id="btn-save-hosts"><i class="bi bi-save me-1"></i>保存</button>
                 </div>
             </div>
         </div>
@@ -571,14 +571,14 @@
                             <i class="bi bi-check-circle-fill text-success fs-4 me-3"></i>
                         </div>
                         <div class="flex-grow-1">
-                            <p class="mb-0" id="successMessage">操作已成功完成</p>
-                            <div id="successNote" class="mt-2 text-muted small"></div>
-                            <div id="successCountdown" class="mt-2 fw-semibold text-success small d-none"></div>
+                            <p class="mb-0" id="success-message">操作已成功完成</p>
+                            <div id="success-note" class="mt-2 text-muted small"></div>
+                            <div id="success-countdown" class="mt-2 fw-semibold text-success small d-none"></div>
                         </div>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" id="successModalConfirmBtn" class="btn btn-success" data-bs-dismiss="modal">
+                    <button type="button" id="btn-success-modal-confirm" class="btn btn-success" data-bs-dismiss="modal">
                         <i class="bi bi-check-lg me-1"></i>确定
                     </button>
                 </div>
@@ -617,7 +617,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                    <button type="button" class="btn btn-primary" id="save-tracker">保存</button>
+                    <button type="button" class="btn btn-primary" id="btn-save-tracker">保存</button>
                 </div>
             </div>
         </div>
@@ -650,7 +650,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                    <button type="button" class="btn btn-primary" id="save-hosts-source">保存</button>
+                    <button type="button" class="btn btn-primary" id="btn-save-hosts-source">保存</button>
                 </div>
             </div>
         </div>
@@ -675,7 +675,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                    <button type="button" class="btn btn-primary" id="save-batch-trackers">保存</button>
+                    <button type="button" class="btn btn-primary" id="btn-save-batch-trackers">保存</button>
                 </div>
             </div>
         </div>
@@ -740,7 +740,7 @@
                         </div>
                         
                         <!-- 企业微信机器人配置 -->
-                        <div id="wecom-config" class="channel-config" style="display: none;">
+                        <div id="wecom-bot-config" class="channel-config" style="display: none;">
                             <div class="form-floating mb-3">
                                 <input type="text" class="form-control" id="wecom-key" placeholder="企业微信机器人Key">
                                 <label for="wecom-key">企业微信机器人Key</label>
@@ -748,7 +748,7 @@
                         </div>
 
                         <!-- 企业微信 App 配置 -->
-                        <div id="wecom_app-config" class="channel-config" style="display: none;">
+                        <div id="wecom-app-config" class="channel-config" style="display: none;">
                             <div class="row">
                                 <div class="col-md-6">
                                     <div class="form-floating mb-3">
@@ -1082,7 +1082,7 @@ X-Custom: value"></textarea>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                    <button type="button" class="btn btn-primary" id="save-notify-channel">保存</button>
+                    <button type="button" class="btn btn-primary" id="btn-save-notify-channel">保存</button>
                 </div>
             </div>
         </div>

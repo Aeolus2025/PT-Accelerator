@@ -1,32 +1,19 @@
 """路由层共享的配置读取与常量。"""
 
-import logging
-import os
 from typing import Any, Dict
 
-import yaml
-
-logger = logging.getLogger(__name__)
+from app.utils.config_io import read_config
 
 CONFIG_PATH = "config/config.yaml"
 DEFAULT_CLOUDFLARE_IP = "104.16.91.215"  # 全局默认Cloudflare IP
 
 
 def get_file_config() -> Dict[str, Any]:
-    """从配置文件读取最新配置。
+    """从文件读取最新配置，每次调用都重新读盘。
 
-    注意：与 app.globals.get_config 不是同一个东西——后者返回内存中的全局
-    config 对象，可能滞后于文件。路由层必须用本函数，否则会出现
-    「前端改了配置但接口读到旧值」的问题。
+    不要与 app.globals.get_config 混用：后者返回内存对象，可能滞后于文件。
     """
-    if not os.path.exists(CONFIG_PATH):
-        return {}
-    try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
-    except Exception as e:
-        logger.error(f"加载配置文件失败: {e}")
-        return {}
+    return read_config(CONFIG_PATH)
 
 
 def config_write_lock():

@@ -3,16 +3,14 @@
 import logging
 import re
 import time
-import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import yaml
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import CONFIG_PATH, DEFAULT_CLOUDFLARE_IP, get_file_config
 from app.globals import get_hosts_manager, get_torrent_client_manager
-from app.models import TorrentClientConfig
 from app.services.hosts_manager import HostsManager
 from app.services.torrent_clients import TorrentClientManager
 from app.utils import log_utils
@@ -22,14 +20,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-get_config = get_file_config
 
 
 # ===== 下载器相关API =====
 
 # 获取下载器客户端列表
 @router.get("/torrent-clients")
-async def get_torrent_clients(config: Dict[str, Any] = Depends(get_config)):
+async def get_torrent_clients(config: Dict[str, Any] = Depends(get_file_config)):
     """获取所有下载器客户端配置"""
     try:
         clients_config = config.get("torrent_clients", [])
@@ -54,7 +51,7 @@ async def get_torrent_clients(config: Dict[str, Any] = Depends(get_config)):
 @router.post("/torrent-clients")
 async def save_torrent_clients(
     clients_data: dict,
-    config: Dict[str, Any] = Depends(get_config)
+    config: Dict[str, Any] = Depends(get_file_config)
 ):
     """保存下载器客户端配置"""
     try:
@@ -136,9 +133,9 @@ async def test_client_connection(
 
 # 兼容旧版API
 @router.post("/save-clients-config")
-async def save_clients_config_route(
+async def save_clients_config_legacy(
     clients_config: dict,
-    config: Dict[str, Any] = Depends(get_config)
+    config: Dict[str, Any] = Depends(get_file_config)
 ):
     """保存下载器配置（兼容旧版API）"""
     logger.info("收到旧版本下载器配置保存请求，正在转换...")
@@ -171,7 +168,7 @@ async def save_clients_config_route(
 @router.delete("/torrent-clients/{client_id}")
 async def delete_torrent_client(
     client_id: str,
-    config: Dict[str, Any] = Depends(get_config)
+    config: Dict[str, Any] = Depends(get_file_config)
 ):
     """删除指定的下载器客户端"""
     try:
@@ -224,10 +221,10 @@ async def get_torrent_client_types():
 
 # 从下载器导入Tracker
 @router.post("/import-trackers-from-clients")
-async def import_trackers_from_clients_route(
+async def import_trackers_from_clients(
     background_tasks: BackgroundTasks,
     hosts_manager: HostsManager = Depends(get_hosts_manager),
-    config: Dict[str, Any] = Depends(get_config),
+    config: Dict[str, Any] = Depends(get_file_config),
     client_id: Optional[str] = None
 ):
     """从下载器客户端导入Tracker

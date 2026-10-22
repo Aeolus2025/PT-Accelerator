@@ -1,16 +1,15 @@
 """配置读写接口。"""
 
 import logging
-import os
 from typing import Any, Dict
 
 import yaml
 from croniter import croniter
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.deps import CONFIG_PATH
+from app.api.deps import CONFIG_PATH, get_file_config
 from app.globals import get_hosts_manager, get_cloudflare_service, get_scheduler_service
-from app.services.cloudflare_speed_test import CloudflareSpeedTestService
+from app.services.cfst_service import CloudflareSpeedTestService
 from app.services.hosts_manager import HostsManager
 from app.services.scheduler import SchedulerService
 from app.utils.file_utils import atomic_write_text
@@ -21,13 +20,13 @@ router = APIRouter()
 
 
 @router.get("/config")
-async def get_config_api():
-    """每次都从文件读取最新配置，防止内存与文件不同步导致tracker状态异常"""
-    if not os.path.exists(CONFIG_PATH):
-        return {}
+async def read_config():
+    """每次都从文件读取最新配置，防止内存与文件不同步导致tracker状态异常。
 
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-        config = yaml.safe_load(f) or {}
+    统一走 get_file_config，与其余 router 共用同一套编码回退（utf-8 / gbk / gb18030）。
+    此前这里直接以 utf-8 打开，GBK 保存的配置会抛 UnicodeDecodeError 导致 500。
+    """
+    config = get_file_config()
 
     # auth.secret_key 是 session 的签名密钥，前端从不使用它。
     # 一旦通过接口下发，任何能访问本服务的人都能用它离线伪造管理员会话。

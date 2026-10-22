@@ -151,10 +151,6 @@ body {
     margin-left: 10px;
 }
 
-.hidden {
-    display: none;
-}
-
 #logs {
     height: 500px;
     overflow-y: auto;

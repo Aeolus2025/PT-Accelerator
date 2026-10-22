@@ -3,7 +3,7 @@ from typing import Dict, Any
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app.services.cloudflare_speed_test import CloudflareSpeedTestService
+from app.services.cfst_service import CloudflareSpeedTestService
 from app.services.hosts_manager import HostsManager
 
 logger = logging.getLogger(__name__)
@@ -102,9 +102,9 @@ class SchedulerService:
                         
                         # 发送定时任务完成通知
                         try:
-                            from app.services.task_notify import _send_task_notify
+                            from app.services.task_notify import send_task_notify
                             logger.info(f"[定时任务通知] IP优选与Hosts更新 -> {msg}")
-                            _send_task_notify("IP优选与Hosts更新", msg)
+                            send_task_notify("IP优选与Hosts更新", msg)
                         except Exception as notify_e:
                             logger.error(f"发送定时任务通知失败: {str(notify_e)}")
                     except Exception as e:
@@ -115,9 +115,9 @@ class SchedulerService:
                         
                         # 发送定时任务失败通知
                         try:
-                            from app.services.task_notify import _send_task_notify
+                            from app.services.task_notify import send_task_notify
                             logger.info(f"[定时任务通知] IP优选与Hosts更新 -> {error_msg}")
-                            _send_task_notify("IP优选与Hosts更新", error_msg)
+                            send_task_notify("IP优选与Hosts更新", error_msg)
                         except Exception as notify_e:
                             logger.error(f"发送定时任务失败通知失败: {str(notify_e)}")
                     finally:

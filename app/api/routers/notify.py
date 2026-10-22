@@ -5,7 +5,7 @@ import logging
 from typing import Any, Dict
 
 import yaml
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter
 from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import CONFIG_PATH, get_file_config
@@ -18,14 +18,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-get_config = get_file_config
 
 # ===== 通知配置API =====
 
 @router.get("/notify/config")
 async def get_notify_config():
     """获取通知配置（从文件读取最新config）"""
-    config = get_config()
+    config = get_file_config()
     notify_cfg = config.get("notify", {})
     return {"success": True, "notify": notify_cfg}
 
@@ -34,7 +33,7 @@ async def get_notify_config():
 async def save_notify_config(payload: Dict[str, Any]):
     """保存通知配置到config.yaml，并保持其余配置不变"""
     try:
-        config = get_config()
+        config = get_file_config()
         new_notify = payload.get("notify", {})
         if not isinstance(new_notify, dict):
             return {"success": False, "message": "无效的通知配置"}
@@ -67,7 +66,7 @@ async def test_notify(payload: Dict[str, Any]):
         channels_override = payload.get("channels") or {}
 
         # 读取配置
-        config = get_config()
+        config = get_file_config()
         notify_cfg = copy.deepcopy(config.get("notify", {}))
         enable = notify_cfg.get("enable", True)
         if not enable:

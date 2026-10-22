@@ -12,7 +12,7 @@ from app.utils import notify_template
 logger = logging.getLogger(__name__)
 
 
-def _send_task_notify(title: str, content: str):
+def send_task_notify(title: str, content: str):
     try:
         cfg = get_file_config() or {}
         notify_cfg = copy.deepcopy(cfg.get("notify", {}))

@@ -1,7 +1,7 @@
 # This file defines the data models used in the application.
 # Add your Pydantic models or other data structures here.
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import List, Optional
 
 class Tracker(BaseModel):
@@ -34,6 +34,9 @@ class TorrentClientConfig(BaseModel):
     enable: bool = True
 
 class BatchAddDomainsRequest(BaseModel):
+    domains: List[str]
+
+class DomainList(BaseModel):
     domains: List[str]
 
 # You might need to add other models based on your application's needs

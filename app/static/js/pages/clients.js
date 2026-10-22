@@ -74,7 +74,7 @@ function loadSupportedClientTypes() {
         },
         error: function(xhr, status, error) {
             console.error('加载客户端类型失败:', error);
-            toast("加载客户端类型失败: " + error, "danger", 10000);
+            ui.showToast("加载客户端类型失败: " + error, "danger", 10000);
         }
     });
 }
@@ -92,15 +92,15 @@ function loadTorrentClients() {
                 renderTorrentClients();
                 console.log('加载客户端配置成功:', currentClients);
             } else {
-                toast("加载客户端配置失败: " + response.message, "danger", 10000);
+                ui.showToast("加载客户端配置失败: " + response.message, "danger", 10000);
             }
         },
         error: function(xhr, status, error) {
             console.error('加载客户端配置失败:', status, error);
             if (status === "timeout") {
-                toast("加载客户端配置超时，请检查网络连接", "warning", 10000);
+                ui.showToast("加载客户端配置超时，请检查网络连接", "warning", 10000);
             } else {
-                toast("加载客户端配置失败: " + error, "danger", 10000);
+                ui.showToast("加载客户端配置失败: " + error, "danger", 10000);
             }
         }
     });
@@ -424,17 +424,17 @@ function testClientConnectionInModal() {
         },
         success: function(response) {
             if (response.success) {
-                toast(response.message, "success", 8000);
+                ui.showToast(response.message, "success", 8000);
             } else {
-                toast(response.message || "连接测试失败", "danger", 10000);
+                ui.showToast(response.message || "连接测试失败", "danger", 10000);
             }
         },
         error: function(xhr, status, error) {
             console.error('测试连接失败:', status, error);
             if (status === "timeout") {
-                toast("连接测试超时，请检查地址和端口是否正确", "warning", 10000);
+                ui.showToast("连接测试超时，请检查地址和端口是否正确", "warning", 10000);
             } else {
-                toast("测试连接失败: " + error, "danger", 10000);
+                ui.showToast("测试连接失败: " + error, "danger", 10000);
             }
         },
         complete: function() {
@@ -462,22 +462,22 @@ function getClientConfigFromModal() {
 // 验证客户端配置
 function validateClientConfig(config) {
     if (!config.name) {
-        toast("请输入客户端名称", "warning", 5000);
+        ui.showToast("请输入客户端名称", "warning", 5000);
         return false;
     }
     
     if (!config.type) {
-        toast("请选择客户端类型", "warning", 5000);
+        ui.showToast("请选择客户端类型", "warning", 5000);
         return false;
     }
     
     if (!config.host) {
-        toast("请输入主机地址", "warning", 5000);
+        ui.showToast("请输入主机地址", "warning", 5000);
         return false;
     }
     
     if (!config.port || config.port < 1 || config.port > 65535) {
-        toast("请输入有效的端口号(1-65535)", "warning", 5000);
+        ui.showToast("请输入有效的端口号(1-65535)", "warning", 5000);
         return false;
     }
     
@@ -532,23 +532,23 @@ function saveTorrentClients() {
         }),
         timeout: 15000,
         beforeSend: function() {
-            toast("正在保存配置...", "info", 3000);
+            ui.showToast("正在保存配置...", "info", 3000);
         },
         success: function(response) {
             if (response.success) {
-                toast(response.message, "success", 5000);
+                ui.showToast(response.message, "success", 5000);
                 // 重新从后端加载最新配置，确保前后端状态同步
                 loadTorrentClients();
             } else {
-                toast(response.message || "保存配置失败", "danger", 10000);
+                ui.showToast(response.message || "保存配置失败", "danger", 10000);
             }
         },
         error: function(xhr, status, error) {
             console.error('保存配置失败:', status, error);
             if (status === "timeout") {
-                toast("保存配置超时，请重试", "warning", 10000);
+                ui.showToast("保存配置超时，请重试", "warning", 10000);
             } else {
-                toast("保存配置失败: " + error, "danger", 10000);
+                ui.showToast("保存配置失败: " + error, "danger", 10000);
             }
         }
     });
@@ -558,7 +558,7 @@ function saveTorrentClients() {
 function testClientConnection(clientId) {
     const client = currentClients.find(c => c.id === clientId);
     if (!client) {
-        toast("未找到客户端配置", "danger", 5000);
+        ui.showToast("未找到客户端配置", "danger", 5000);
         console.error('未找到客户端配置:', clientId, '当前客户端列表:', currentClients);
         return;
     }
@@ -579,17 +579,17 @@ function testClientConnection(clientId) {
         },
         success: function(response) {
             if (response.success) {
-                toast(response.message, "success", 8000);
+                ui.showToast(response.message, "success", 8000);
             } else {
-                toast(response.message || "连接测试失败", "danger", 10000);
+                ui.showToast(response.message || "连接测试失败", "danger", 10000);
             }
         },
         error: function(xhr, status, error) {
             console.error('测试连接失败:', status, error);
             if (status === "timeout") {
-                toast("连接测试超时，请检查配置", "warning", 10000);
+                ui.showToast("连接测试超时，请检查配置", "warning", 10000);
             } else {
-                toast("测试连接失败: " + error, "danger", 10000);
+                ui.showToast("测试连接失败: " + error, "danger", 10000);
             }
         },
         complete: function() {
@@ -608,11 +608,11 @@ function editClient(clientId) {
 function deleteClient(clientId) {
     const client = currentClients.find(c => c.id === clientId);
     if (!client) {
-        toast("未找到客户端配置", "danger", 5000);
+        ui.showToast("未找到客户端配置", "danger", 5000);
         return;
     }
     
-    confirmModal('确认删除', `确定要删除客户端 "${client.name}" 吗？`, function onConfirm() {
+    ui.showConfirmModal('确认删除', `确定要删除客户端 "${client.name}" 吗？`, function onConfirm() {
         performDeleteClient(clientId);
     });
 }
@@ -625,17 +625,17 @@ function performDeleteClient(clientId) {
         timeout: 10000,
         success: function(response) {
             if (response.success) {
-                toast(response.message, "success", 5000);
+                ui.showToast(response.message, "success", 5000);
                 // 从本地数组中移除
                 currentClients = currentClients.filter(c => c.id !== clientId);
                 renderTorrentClients();
             } else {
-                toast(response.message || "删除失败", "danger", 10000);
+                ui.showToast(response.message || "删除失败", "danger", 10000);
             }
         },
         error: function(xhr, status, error) {
             console.error('删除客户端失败:', status, error);
-            toast("删除客户端失败: " + error, "danger", 10000);
+            ui.showToast("删除客户端失败: " + error, "danger", 10000);
         }
     });
 }
@@ -680,7 +680,7 @@ function _startImportPolling() {
     _importPollTimer = setInterval(() => {
         if (Date.now() - startedAt > MAX_DURATION) {
             _stopImportPolling();
-            toast("导入仍在进行（已超过5分钟），请稍后手动刷新页面查看结果", "warning", 15000);
+            ui.showToast("导入仍在进行（已超过5分钟），请稍后手动刷新页面查看结果", "warning", 15000);
             return;
         }
 
@@ -696,7 +696,7 @@ function _startImportPolling() {
             if (hasNew) {
                 const added = domains.size - _importBaselineDomains.size;
                 _stopImportPolling();
-                toast(`导入完成，新增 ${added} 个Tracker，正在刷新列表...`, "success", 8000);
+                ui.showToast(`导入完成，新增 ${added} 个Tracker，正在刷新列表...`, "success", 8000);
                 global.trackersPage.loadTrackers();
                 setTimeout(global.hostsPage.loadCurrentHosts, 1000);
             }
@@ -713,18 +713,18 @@ function importTrackersFromClients(clientId) {
     if (single) {
         targetClient = currentClients.find(c => c.id === clientId);
         if (!targetClient) {
-            toast("未找到指定的下载器，请刷新页面后重试", "danger", 6000);
+            ui.showToast("未找到指定的下载器，请刷新页面后重试", "danger", 6000);
             return;
         }
         if (!targetClient.enable) {
-            toast("该下载器已禁用，请先启用后再导入Tracker", "warning", 8000);
+            ui.showToast("该下载器已禁用，请先启用后再导入Tracker", "warning", 8000);
             return;
         }
     } else {
         // 检查是否有启用的客户端
         const enabledClients = currentClients.filter(c => c.enable);
         if (enabledClients.length === 0) {
-            toast("请先启用至少一个下载器客户端", "warning", 8000);
+            ui.showToast("请先启用至少一个下载器客户端", "warning", 8000);
             return;
         }
     }
@@ -755,7 +755,7 @@ function importTrackersFromClients(clientId) {
                 message += `<br><small>详情：${response.client_summary}</small>`;
             }
             
-            toast(message, messageType, 10000);
+            ui.showToast(message, messageType, 10000);
             
             // 如果成功导入，刷新tracker列表和hosts文件显示
             if (response.status === "success") {
@@ -768,10 +768,10 @@ function importTrackersFromClients(clientId) {
             if (status === "timeout") {
                 // 后端仍在同步执行导入，只是前端不再等待。
                 // 轮询 tracker 列表，导入写入后自动刷新界面，无需手动刷新页面。
-                toast("导入耗时较长，后端仍在处理中，完成后会自动刷新列表...", "info", 8000);
+                ui.showToast("导入耗时较长，后端仍在处理中，完成后会自动刷新列表...", "info", 8000);
                 _startImportPolling();
             } else {
-                toast("导入Tracker失败: " + error, "danger", 10000);
+                ui.showToast("导入Tracker失败: " + error, "danger", 10000);
             }
         },
         complete: function() {

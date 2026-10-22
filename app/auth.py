@@ -1,4 +1,4 @@
-from fastapi import Request, HTTPException, status
+from fastapi import Request
 from passlib.context import CryptContext
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignature
 import os
