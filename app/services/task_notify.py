@@ -4,7 +4,7 @@ import copy
 import logging
 from typing import Any, Dict
 
-from app.api.deps import get_file_config
+from app.core import config_store
 from app.utils import notify as notify_module
 from app.utils import notify_channel
 from app.utils import notify_template
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 def send_task_notify(title: str, content: str):
     try:
-        cfg = get_file_config() or {}
+        cfg = config_store.read() or {}
         notify_cfg = copy.deepcopy(cfg.get("notify", {}))
 
         # 标题与内容交给模板渲染，未配置模板时走内置默认格式

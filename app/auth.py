@@ -2,6 +2,7 @@ from fastapi import Request
 from passlib.context import CryptContext
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignature
 import os
+import secrets
 import yaml
 import logging
 from typing import Optional
@@ -31,6 +32,28 @@ def verify_password(plain_password, hashed_password):
 def get_password_hash(password):
     """生成密码哈希"""
     return pwd_context.hash(password)
+
+def generate_initial_password(username: str) -> str:
+    """生成初始密码并打印到日志，返回明文供调用方写入 password_hash。
+
+    启动兜底与「启用认证」保存两处共用，避免打印格式和密码格式不一致。
+    """
+    password = secrets.token_urlsafe(12)
+
+    # 同时走 print 与 logging：容器里常只看得到 stdout
+    print("=" * 60)
+    print("重要：管理员密码已自动生成")
+    print(f"用户名: {username}")
+    print(f"密码: {password}")
+    print("请妥善保存此密码，登录后请立即修改")
+    print("=" * 60)
+
+    logger.warning("=" * 60)
+    logger.warning(f"管理员密码尚未设置。已自动生成初始密码: {password}")
+    logger.warning("请使用此密码登录后，在控制面板中修改密码。")
+    logger.warning(f"用户名: {username}")
+    logger.warning("=" * 60)
+    return password
 
 async def get_current_user(request: Request) -> Optional[User]:
     """获取当前登录用户"""
@@ -101,19 +124,14 @@ def create_user_session(username: str) -> dict:
     return {"username": username}
 
 def reload_global_config():
-    """重新加载全局配置，确保认证配置更改能立即生效"""
+    """重新加载认证配置，确保更改立即生效。
+
+    配置本身以磁盘为准，这里只需要在 secret_key 变化时重建 session 序列化器。
+    """
     try:
-        # 动态导入以避免循环导入
-        import importlib
-        import app.main
-        
         # 重新加载当前配置
         new_config = load_current_config()
-        
-        # 更新全局配置
-        app.main.config.clear()
-        app.main.config.update(new_config)
-        
+
         # 如果secret_key发生变化，重新初始化session序列化器
         if new_config.get("auth", {}).get("secret_key"):
             init_session_serializer(new_config["auth"]["secret_key"])

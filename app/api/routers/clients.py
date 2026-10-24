@@ -2,19 +2,19 @@
 
 import logging
 import re
-import time
 from typing import Any, Dict, Optional
 
-import yaml
 from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from starlette.concurrency import run_in_threadpool
 
-from app.api.deps import CONFIG_PATH, DEFAULT_CLOUDFLARE_IP, get_file_config
+from app.api.deps import get_file_config, save_config_and_sync
+from app.core.constants import DEFAULT_CLOUDFLARE_IP
+from app.services import domain_service
 from app.globals import get_hosts_manager, get_torrent_client_manager
 from app.services.hosts_manager import HostsManager
 from app.services.torrent_clients import TorrentClientManager
 from app.utils import log_utils
-from app.utils.file_utils import atomic_write_text
+from app.core import config_store
 
 logger = logging.getLogger(__name__)
 
@@ -87,11 +87,9 @@ async def save_torrent_clients(
         if len(client_ids) != len(set(client_ids)):
             return {"success": False, "message": "客户端ID不能重复"}
         
-        # 更新配置
-        config["torrent_clients"] = clients_config
-        
-        # 保存配置到文件
-        atomic_write_text(CONFIG_PATH, yaml.dump(config, default_flow_style=False, allow_unicode=True))
+        # 只写 torrent_clients 这一节，其余配置原样保留
+        config_store.mutate(lambda current: current.__setitem__("torrent_clients", clients_config))
+        config = get_file_config()
         
         # 更新 TorrentClientManager
         torrent_client_manager = get_torrent_client_manager()
@@ -131,39 +129,6 @@ async def test_client_connection(
         logger.error(f"测试下载器连接失败: {str(e)}")
         return {"success": False, "message": f"测试连接失败: {str(e)}"}
 
-# 兼容旧版API
-@router.post("/save-clients-config")
-async def save_clients_config_legacy(
-    clients_config: dict,
-    config: Dict[str, Any] = Depends(get_file_config)
-):
-    """保存下载器配置（兼容旧版API）"""
-    logger.info("收到旧版本下载器配置保存请求，正在转换...")
-    try:
-        # 将旧格式转换为新格式
-        converted_clients = []
-        
-        for client_type, client_config in clients_config.items():
-            if client_type in ["qbittorrent", "transmission"]:
-                # 生成唯一ID
-                client_id = f"{client_type}_{int(time.time())}"
-                converted_clients.append({
-                    "id": client_id,
-                    "name": f"{client_type.capitalize()} 默认",
-                    "type": client_type,
-                    **client_config
-                })
-        
-        # 调用新版API
-        return await save_torrent_clients(
-            {"clients": converted_clients},
-            config
-        )
-        
-    except Exception as e:
-        logger.error(f"保存下载器配置失败: {str(e)}")
-        return {"success": False, "message": f"保存配置失败: {str(e)}"}
-
 # 删除下载器客户端
 @router.delete("/torrent-clients/{client_id}")
 async def delete_torrent_client(
@@ -180,11 +145,8 @@ async def delete_torrent_client(
         if len(updated_clients) == len(clients_config):
             return {"success": False, "message": f"未找到客户端: {client_id}"}
         
-        # 更新配置
-        config["torrent_clients"] = updated_clients
-        
-        # 保存配置到文件
-        atomic_write_text(CONFIG_PATH, yaml.dump(config, default_flow_style=False, allow_unicode=True))
+        config_store.mutate(lambda current: current.__setitem__("torrent_clients", updated_clients))
+        config = get_file_config()
         
         # 更新 TorrentClientManager
         torrent_client_manager = get_torrent_client_manager()
@@ -250,7 +212,7 @@ async def import_trackers_from_clients(
 
             if result.get("status") == "success" and result.get("all_domains"):
                 existing_domains = {tracker['domain'] for tracker in config.get('trackers', [])}
-                new_trackers_added = False
+                pending_trackers = []
                 cf_domains = []
                 non_cf_domains = []
 
@@ -258,13 +220,12 @@ async def import_trackers_from_clients(
                 with log_utils.temporary_log_level('app.services.hosts_manager', logging.DEBUG):
                     # 域名清洗和Cloudflare检测
                     for domain in result["all_domains"]:
-                        # 清洗tracker域名，移除http前缀和路径
-                        d = re.sub(r"^https?://", "", domain, flags=re.IGNORECASE)
-                        d = d.split("/")[0]
-                        domain = d
+                        domain = domain_service.clean_domain(domain)
+                        if not domain:
+                            continue
 
                         # 提取纯域名（移除端口号）用于Cloudflare检测
-                        clean_domain = domain.split(':')[0] if ':' in domain else domain
+                        clean_domain = domain_service.strip_port(domain)
 
                         logger.info(f"[Cloudflare检测] 正在检测下载器导入的域名: {clean_domain}")
                         # 检测Cloudflare
@@ -278,9 +239,8 @@ async def import_trackers_from_clients(
                                     "enable": True,
                                     "ip": default_ip
                                 }
-                                config.setdefault('trackers', []).append(new_tracker)
+                                pending_trackers.append(new_tracker)
                                 existing_domains.add(domain)
-                                new_trackers_added = True
                         else:
                             logger.info(f"[Cloudflare检测] 域名 {clean_domain} 不是Cloudflare域名，已跳过")
                             non_cf_domains.append(domain)
@@ -298,16 +258,16 @@ async def import_trackers_from_clients(
                         logger.info(f"- {domain}")
 
                 # 只有有新的Cloudflare站点时才更新配置文件
-                if new_trackers_added:
-                    atomic_write_text(CONFIG_PATH, yaml.dump(config, default_flow_style=False, allow_unicode=True))
+                if pending_trackers:
+                    # 检测耗时可能远超一次请求，写盘时按锁内最新配置重新判重，
+                    # 避免另一个请求在此期间已添加同域名，也避免整份覆盖它的改动
+                    def _save(current):
+                        trackers = current.setdefault("trackers", [])
+                        known = {t.get("domain") for t in trackers}
+                        trackers.extend(t for t in pending_trackers if t["domain"] not in known)
+
+                    save_config_and_sync(_save)
                     logger.info("已更新配置文件，添加了新的Tracker")
-                    hosts_manager.update_config(config)
-                    try:
-                        import app.main
-                        app.main.config = config
-                        logger.info("同步刷新全局config对象，确保前端获取到最新tracker列表")
-                    except Exception as e:
-                        logger.error(f"刷新全局config对象失败: {str(e)}")
 
                     # 更新结果消息，区分加速和过滤站点
                     cf_only_message = f"成功导入 {len(cf_domains)} 个Cloudflare站点"

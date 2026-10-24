@@ -1,16 +1,16 @@
 """认证配置接口（启用/禁用、用户名、密码）。"""
 
 import logging
-import secrets
 
-import yaml
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 
-from app.api.deps import CONFIG_PATH, config_write_lock, get_file_config
+from app.api.deps import get_file_config
+from app.core.constants import CONFIG_PATH
+from app.core.locking import config_write_lock
 from app.auth import get_current_user
-from app.auth import get_password_hash, verify_password
+from app.auth import generate_initial_password, get_password_hash, verify_password
 from app.models import User
-from app.utils.file_utils import atomic_write_text
+from app.core import config_store
 
 logger = logging.getLogger(__name__)
 
@@ -105,27 +105,15 @@ async def _update_auth_config_locked(
     # 启用认证但从未设置过密码：当场生成初始密码并打印到日志（原实现只在应用启动时生成，
     # 导致"启用后必须重启才能拿到密码"）。与 app/main.py 的启动兜底逻辑保持一致。
     if auth_settings.get("enable") and not auth_settings.get("password_hash"):
-        generated_password = secrets.token_urlsafe(12)
+        generated_password = generate_initial_password(auth_settings.get("username", "admin"))
         auth_settings["password_hash"] = get_password_hash(generated_password)
         config_changed = True
-
-        print("=" * 60)
-        print("重要：管理员密码已自动生成")
-        print(f"用户名: {auth_settings.get('username')}")
-        print(f"密码: {generated_password}")
-        print("请妥善保存此密码，登录后请立即修改")
-        print("=" * 60)
-
-        logger.warning("=" * 60)
-        logger.warning(f"管理员密码尚未设置。已自动生成初始密码: {generated_password}")
-        logger.warning("请使用此密码登录后，在控制面板中修改密码。")
-        logger.warning(f"用户名: {auth_settings.get('username')}")
-        logger.warning("=" * 60)
 
     if config_changed:
         current_config["auth"] = auth_settings
         try:
-            atomic_write_text(CONFIG_PATH, yaml.dump(current_config, default_flow_style=False, allow_unicode=True))
+            # 外层已持有 config_write_lock，这里直接写，不要重复取锁
+            config_store.write(CONFIG_PATH, current_config)
             
             # 重新加载全局配置，确保认证配置变更立即生效
             from app.auth import reload_global_config

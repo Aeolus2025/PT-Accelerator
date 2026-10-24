@@ -4,15 +4,14 @@ import copy
 import logging
 from typing import Any, Dict
 
-import yaml
 from fastapi import APIRouter
 from starlette.concurrency import run_in_threadpool
 
-from app.api.deps import CONFIG_PATH, get_file_config
+from app.api.deps import get_file_config
 from app.utils import notify as notify_module
 from app.utils import notify_channel
 from app.utils import notify_template
-from app.utils.file_utils import atomic_write_text
+from app.core import config_store
 
 logger = logging.getLogger(__name__)
 
@@ -33,22 +32,12 @@ async def get_notify_config():
 async def save_notify_config(payload: Dict[str, Any]):
     """保存通知配置到config.yaml，并保持其余配置不变"""
     try:
-        config = get_file_config()
         new_notify = payload.get("notify", {})
         if not isinstance(new_notify, dict):
             return {"success": False, "message": "无效的通知配置"}
 
-        # 更新配置
-        config["notify"] = new_notify
-
-        atomic_write_text(CONFIG_PATH, yaml.dump(config, default_flow_style=False, allow_unicode=True))
-
-        # 尝试同步到全局config，便于前端刷新
-        try:
-            import app.main
-            app.main.config = config
-        except Exception:
-            pass
+        # 只写 notify 这一节，其余配置原样保留
+        config_store.mutate(lambda current: current.__setitem__("notify", new_notify))
 
         logger.info("通知配置已保存")
         return {"success": True, "message": "通知配置已保存"}

@@ -7,22 +7,23 @@ import os
 import copy
 import logging
 import platform
-import time
 import yaml
 import uvicorn
 import secrets
-from contextlib import contextmanager
 from typing import Optional
 
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.services.cfst_service import CloudflareSpeedTestService
+from app.services.cfst import CloudflareSpeedTestService
 from app.services.hosts_manager import HostsManager
 from app.services.scheduler import SchedulerService
 from app.services.torrent_clients import TorrentClientManager
 from app.models import User
-from app.auth import init_session_serializer, verify_password, get_password_hash, get_current_user, create_user_session
-from app.utils.file_utils import atomic_write_text
+from app.auth import init_session_serializer, verify_password, get_password_hash, get_current_user, create_user_session, generate_initial_password
+from app.core import config_store
+from app.core.constants import CONFIG_PATH, DEFAULT_CLOUDFLARE_IP
+from app.core.defaults import DEFAULT_CONFIG
+from app.core.locking import config_write_lock
 from version import get_version
 
 # 优先确保目录存在
@@ -39,81 +40,6 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-
-# 创建必要的目录（已提前创建，保留以防未来调整调用顺序）
-os.makedirs("logs", exist_ok=True)
-os.makedirs("config", exist_ok=True)
-
-# 初始化配置
-CONFIG_PATH = "config/config.yaml"
-DEFAULT_CLOUDFLARE_IP = "104.16.91.215"
-
-# 预装的外部 hosts 源：全部默认关闭，用户可在 UI「Hosts源」页按需勾选启用。
-HOSTS_SOURCE_PRESETS = [
-    {
-        "name": "GitHub（Gitlab源）",
-        "url": "https://gitlab.com/ineo6/hosts/-/raw/master/next-hosts",
-        "enable": False
-    },
-    {
-        "name": "GitHub（Gitee源）",
-        "url": "https://gitee.com/godfather1103/github-hosts/raw/master/hosts",
-        "enable": False
-    }
-]
-
-DEFAULT_CONFIG = {
-    "cloudflare": {
-        "enable": True,
-        "cron": "0 0 * * *",  # 每天零点运行
-        "ipv6": False,
-        "additional_args": "",
-        "notify": True
-    },
-    "trackers": [
-        {
-            "name": "示例Tracker",
-            "domain": "tracker.example.com",
-            "enable": True,
-            "ip": DEFAULT_CLOUDFLARE_IP
-        }
-    ],
-    # 外部 hosts 源预装但全部关闭：新部署不会生成 MergedHosts，用户需在 UI「Hosts源」页手动勾选启用。
-    # 清单见下方 HOSTS_SOURCE_PRESETS（深拷贝，避免运行时改动污染常量）。
-    "hosts_sources": [dict(s) for s in HOSTS_SOURCE_PRESETS],
-    "torrent_clients": [
-        {
-            "id": "qb_default",
-            "name": "qBittorrent 默认",
-            "type": "qbittorrent",
-            "host": "localhost",
-            "port": 8080,
-            "username": "",
-            "password": "",
-            "api_key": "",
-            "use_https": False,
-            "enable": False
-        },
-        {
-            "id": "tr_default", 
-            "name": "Transmission 默认",
-            "type": "transmission",
-            "host": "localhost",
-            "port": 9091,
-            "username": "",
-            "password": "",
-            "use_https": False,
-            "path": "/transmission/rpc",
-            "enable": False
-        }
-    ],
-    "auth": {
-        "enable": False,
-        "username": "admin",
-        "password_hash": "",
-        "secret_key": ""
-    }
-}
 
 # 创建nowip_hosts.txt文件，确保cfst_hosts.sh脚本能正常运行
 def create_nowip_file():
@@ -142,7 +68,7 @@ def load_config():
     if not os.path.exists(CONFIG_PATH):
         if not DEFAULT_CONFIG["auth"].get("secret_key"):
             DEFAULT_CONFIG["auth"]["secret_key"] = secrets.token_hex(32)
-        atomic_write_text(CONFIG_PATH, yaml.dump(DEFAULT_CONFIG, default_flow_style=False, allow_unicode=True))
+        config_store.write(CONFIG_PATH, DEFAULT_CONFIG)
         # 深拷贝：运行时对 config 的修改（增删 tracker / hosts_sources 等）不能污染 DEFAULT_CONFIG
         current_config = copy.deepcopy(DEFAULT_CONFIG)
     else:
@@ -182,7 +108,7 @@ def load_config():
                 need_save_after_load = True
         
         if need_save_after_load:
-            atomic_write_text(CONFIG_PATH, yaml.dump(current_config, default_flow_style=False, allow_unicode=True))
+            config_store.write(CONFIG_PATH, current_config)
 
     # 初始化认证模块的 session_serializer
     if current_config.get("auth", {}).get("secret_key"):
@@ -195,7 +121,7 @@ def load_config():
         logger.warning("配置文件中未找到 secret_key，已生成临时的 secret_key。请检查配置文件。")
         # 尝试保存回文件
         try:
-            atomic_write_text(CONFIG_PATH, yaml.dump(current_config, default_flow_style=False, allow_unicode=True))
+            config_store.write(CONFIG_PATH, current_config)
             logger.info("已将生成的临时 secret_key 保存回配置文件。")
         except Exception as e:
             logger.error(f"保存临时 secret_key 到配置文件失败: {e}")
@@ -206,65 +132,17 @@ def load_config():
 create_nowip_file()
 
 
-@contextmanager
-def _config_write_lock(timeout: float = 10.0):
-    """
-    跨进程的配置写锁。
-
-    用途：把「读取配置 → 判断是否需要生成 → 写回配置」这段临界区变原子。
-    多 worker 下每个进程都会执行 startup_event，若无此锁：
-      worker A 读到 password_hash 为空 → 生成密码 P1
-      worker B 也读到为空 → 生成密码 P2
-      A 写文件(P1) → B 写文件(P2)
-    最终生效的是 P2，但 A 的控制台/日志里打印的是 P1，用户拿着 P1 永远登不上。
-
-    实现：POSIX 文件锁（fcntl.flock，独占）。锁文件放在 config/ 下，
-    不随 CONFIG_PATH 的原子替换而消失（替换的是目标文件，不是锁文件）。
-    非 POSIX 平台（Windows 开发环境）自动降级为无锁，不影响单 worker 使用。
-    """
-    lock_path = os.path.join(os.path.dirname(os.path.abspath(CONFIG_PATH)), ".config.lock")
-    os.makedirs(os.path.dirname(lock_path), exist_ok=True)
-
-    try:
-        import fcntl
-    except ImportError:  # 非 POSIX，直接放行
-        yield
-        return
-
-    lock_file = open(lock_path, "a+")
-    acquired = False
-    deadline = time.monotonic() + timeout
-    try:
-        while True:
-            try:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                acquired = True
-                break
-            except OSError:
-                if time.monotonic() >= deadline:
-                    # 超时后退化为无锁继续执行，避免整个进程卡死在启动阶段
-                    logger.warning(f"获取配置写锁超时({timeout}s)，继续执行（可能存在并发写风险）")
-                    break
-                time.sleep(0.05)
-        yield
-    finally:
-        if acquired:
-            try:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-            except OSError:
-                pass
-        lock_file.close()
-
-
 # 服务初始化
-config = load_config()
+# 启动时的配置快照，供本模块构造各服务使用。
+# 全局读取请用 config_store.read()：内存对象会滞后于文件。
+_startup_config = load_config()
 # 创建应用
 app = FastAPI(title="PT-Accelerator")
 
 # 添加 SessionMiddleware, secret_key 从配置中读取
 # 确保在所有路由之前添加中间件
-if config.get("auth", {}).get("secret_key"):
-    app.add_middleware(SessionMiddleware, secret_key=config["auth"]["secret_key"])
+if _startup_config.get("auth", {}).get("secret_key"):
+    app.add_middleware(SessionMiddleware, secret_key=_startup_config["auth"]["secret_key"])
 else:
     # 如果到这里 secret_key 仍然没有，这是个严重问题，但为了应用能启动，用一个固定值（不推荐生产环境）
     logger.error("CRITICAL: Secret key for session middleware is not set. Using a temporary insecure key.")
@@ -278,20 +156,22 @@ templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 # 将版本号注入 Jinja2 全局，供静态资源版本查询串（?v={{ app_version }}）使用，
 # 避免每次都靠 TemplateResponse 的 context 传递（login.html 有多处渲染点）。
 templates.env.globals["app_version"] = get_version()
-hosts_manager = HostsManager(config)
-cloudflare_service = CloudflareSpeedTestService(config, hosts_manager)
-scheduler_service = SchedulerService(config, cloudflare_service, hosts_manager)
-torrent_client_manager = TorrentClientManager(config)
+hosts_manager = HostsManager(_startup_config)
+cloudflare_service = CloudflareSpeedTestService(_startup_config, hosts_manager)
+scheduler_service = SchedulerService(_startup_config, cloudflare_service, hosts_manager)
+torrent_client_manager = TorrentClientManager(_startup_config)
 
 # 初始化全局服务实例
 from app.globals import init_services
-init_services(hosts_manager, cloudflare_service, scheduler_service, torrent_client_manager, config)
+init_services(hosts_manager, cloudflare_service, scheduler_service, torrent_client_manager, _startup_config)
 
 # 注册路由 - 在服务初始化之后导入
 from app.api.routers import config as config_router
 from app.api.routers import auth as auth_router
 from app.api.routers import tasks as tasks_router
-from app.api.routers import sites as sites_router
+from app.api.routers import cloudflare_domains as cloudflare_router
+from app.api.routers import trackers as trackers_router
+from app.api.routers import hosts as hosts_router
 from app.api.routers import clients as clients_router
 from app.api.routers import notify as notify_router
 from app.api.routers import logs as logs_router
@@ -299,7 +179,9 @@ from app.api.routers import logs as logs_router
 app.include_router(config_router.router, prefix="/api", tags=["config"])
 app.include_router(auth_router.router, prefix="/api", tags=["auth"])
 app.include_router(tasks_router.router, prefix="/api", tags=["tasks"])
-app.include_router(sites_router.router, prefix="/api", tags=["sites"])
+app.include_router(cloudflare_router.router, prefix="/api", tags=["cloudflare"])
+app.include_router(trackers_router.router, prefix="/api", tags=["trackers"])
+app.include_router(hosts_router.router, prefix="/api", tags=["hosts"])
 app.include_router(clients_router.router, prefix="/api", tags=["clients"])
 app.include_router(notify_router.router, prefix="/api", tags=["notify"])
 app.include_router(logs_router.router, prefix="/api", tags=["logs"])
@@ -406,7 +288,6 @@ async def home(request: Request, current_user: Optional[User] = Depends(get_curr
 # 运行时更新配置
 @app.on_event("startup")
 async def startup_event():
-    global config # 确保访问的是最新的 config
     # 启动调度器
     scheduler_service.start()
     logger.info("应用已启动，调度器已开始运行")
@@ -415,7 +296,7 @@ async def startup_event():
     # 单 worker 时不会有问题，但 `uvicorn --workers N` 下每个 worker 都会跑一次
     # startup_event，各自生成不同的密码并写文件 -> 互相覆盖，用户从日志里拿到的
     # 可能是一个已经被覆盖掉的密码。这里用文件锁保证同一时刻只有一个 worker 在做。
-    with _config_write_lock():
+    with config_write_lock():
         current_config = load_config()  # 重新加载最新配置
         auth_config = current_config.get("auth", {})
         config_updated = False
@@ -429,34 +310,17 @@ async def startup_event():
 
         # 检查管理员密码是否设置 - 改进逻辑
         if auth_config.get("enable") and (not auth_config.get("password_hash") or auth_config.get("password_hash") == ""):
-            new_password = secrets.token_urlsafe(12) # 生成一个随机密码
-            hashed_password = get_password_hash(new_password)
+            new_password = generate_initial_password(auth_config.get("username", "admin"))
 
             # 更新配置
-            auth_config["password_hash"] = hashed_password
+            auth_config["password_hash"] = get_password_hash(new_password)
             current_config["auth"] = auth_config
             config_updated = True
-
-            # 多次输出确保能看到
-            print("=" * 60)
-            print(f"重要：管理员密码已自动生成")
-            print(f"用户名: {auth_config['username']}")
-            print(f"密码: {new_password}")
-            print("请妥善保存此密码，登录后请立即修改")
-            print("=" * 60)
-
-            logger.warning("=" * 60)
-            logger.warning(f"管理员密码尚未设置。已自动生成初始密码: {new_password}")
-            logger.warning("请使用此密码登录后，在控制面板中修改密码。")
-            logger.warning(f"用户名: {auth_config['username']}")
-            logger.warning("=" * 60)
 
         # 如果配置有更新，保存到文件并更新全局配置
         if config_updated:
             try:
-                atomic_write_text(CONFIG_PATH, yaml.dump(current_config, default_flow_style=False, allow_unicode=True))
-                # 更新全局配置
-                config.update(current_config)
+                config_store.write(CONFIG_PATH, current_config)
                 logger.info("认证配置已更新并保存")
             except Exception as e:
                 logger.error(f"保存认证配置失败: {e}")

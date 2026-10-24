@@ -4,7 +4,22 @@ import logging
 import re
 from typing import Any, Dict, List, Tuple
 
+from app.core.constants import DEFAULT_CLOUDFLARE_IP
+
 logger = logging.getLogger(__name__)
+
+
+def clean_domain(text: str) -> str:
+    """清洗单个域名：去协议前缀、切掉路径，保留端口号原样。"""
+    value = str(text or "").strip()
+    if not value:
+        return ""
+    return re.sub(r"^https?://", "", value, flags=re.IGNORECASE).split("/")[0]
+
+
+def strip_port(domain: str) -> str:
+    """去掉端口号，得到用于 DNS/HTTPS 探测的纯域名。"""
+    return domain.split(":")[0] if ":" in domain else domain
 
 
 def clean_domains(raw_domains) -> List[str]:
@@ -20,10 +35,7 @@ def clean_domains(raw_domains) -> List[str]:
 
     result: List[str] = []
     for item in items:
-        text = str(item or "").strip()
-        if not text:
-            continue
-        domain = re.sub(r"^https?://", "", text, flags=re.IGNORECASE).split("/")[0]
+        domain = clean_domain(item)
         if domain:
             result.append(domain)
     return result
@@ -37,7 +49,7 @@ def check_ip_consistency(trackers: List[Dict[str, Any]]) -> Tuple[bool, str]:
     return True, ""
 
 
-def resolve_default_ip(trackers: List[Dict[str, Any]], fallback: str = "104.16.91.215") -> str:
+def resolve_default_ip(trackers: List[Dict[str, Any]], fallback: str = DEFAULT_CLOUDFLARE_IP) -> str:
     """取默认 IP：优先沿用现有已启用 tracker 的 IP，否则用优选 IP 或兜底值。"""
     ips = {t.get("ip") for t in trackers if t.get("enable") and t.get("ip")}
     if len(ips) == 1:

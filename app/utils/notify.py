@@ -1201,7 +1201,7 @@ def add_notify_function():
     if push_config_get("MEDIASABER_HOST") and push_config_get("MEDIASABER_APIKEY") and is_channel_enabled("mediasaber"):
         notify_function.append(notify_mediasaber)
     if not notify_function:
-        _log_print(f"无推送渠道，请检查通知变量是否正确")
+        _log_print("无推送渠道，请检查通知变量是否正确")
     return notify_function
 
 

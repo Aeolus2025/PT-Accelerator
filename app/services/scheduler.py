@@ -3,10 +3,14 @@ from typing import Dict, Any
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app.services.cfst_service import CloudflareSpeedTestService
+from app.core.tasks import registry as task_registry
+from app.services.cfst import CloudflareSpeedTestService
 from app.services.hosts_manager import HostsManager
 
 logger = logging.getLogger(__name__)
+
+# 定时任务在 registry 中的登记名
+TASK_NAME = "scheduler"
 
 class SchedulerService:
     """调度器服务，用于定时执行任务"""
@@ -17,8 +21,7 @@ class SchedulerService:
         self.hosts_manager = hosts_manager
         self.scheduler = None  # 初始化为None，在start时创建
         self._create_scheduler()  # 创建新的调度器
-        # 添加任务状态追踪
-        self.task_status = {"status": "done", "message": "无任务"}
+        # 任务状态统一记在 core.tasks 的 registry 里
     
     def _create_scheduler(self):
         """创建一个新的调度器实例"""
@@ -91,12 +94,12 @@ class SchedulerService:
                     task_start_time = time.time()
                     logger.info("开始执行组合任务：优选IP + 更新hosts源（严格串行）")
                     # 更新任务状态
-                    self.task_status = {"status": "running", "message": "正在执行定时IP优选任务"}
+                    task_registry.start(TASK_NAME, "正在执行定时IP优选任务")
                     try:
                         ok = self.hosts_manager.run_cfst_and_update_hosts()
                         status = self.hosts_manager.get_task_status() if hasattr(self.hosts_manager, 'get_task_status') else {}
                         msg = status.get('message') if isinstance(status, dict) else ("定时IP优选任务完成" if ok else "定时IP优选任务失败")
-                        self.task_status = {"status": "done", "message": msg}
+                        task_registry.finish(TASK_NAME, msg)
                         task_duration = time.time() - task_start_time
                         logger.info(f"组合任务完成：优选IP + 更新hosts源（严格串行），耗时 {task_duration:.2f} 秒")
                         
@@ -109,7 +112,7 @@ class SchedulerService:
                             logger.error(f"发送定时任务通知失败: {str(notify_e)}")
                     except Exception as e:
                         error_msg = f"定时任务失败: {str(e)}"
-                        self.task_status = {"status": "done", "message": error_msg}
+                        task_registry.finish(TASK_NAME, error_msg)
                         task_duration = time.time() - task_start_time
                         logger.error(f"执行定时任务失败: {str(e)}，耗时 {task_duration:.2f} 秒", exc_info=True)
                         
@@ -174,9 +177,5 @@ class SchedulerService:
         return jobs
         
     def get_task_status(self):
-        """获取当前任务状态
-        
-        Returns:
-            任务状态字典: 包含status和message
-        """
-        return self.task_status
+        """获取当前任务状态（读统一的 task registry）"""
+        return task_registry.get(TASK_NAME)

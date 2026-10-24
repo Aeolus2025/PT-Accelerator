@@ -3,16 +3,15 @@
 import logging
 from typing import Any, Dict
 
-import yaml
 from croniter import croniter
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.deps import CONFIG_PATH, get_file_config
+from app.api.deps import get_file_config
 from app.globals import get_hosts_manager, get_cloudflare_service, get_scheduler_service
-from app.services.cfst_service import CloudflareSpeedTestService
+from app.services.cfst import CloudflareSpeedTestService
 from app.services.hosts_manager import HostsManager
 from app.services.scheduler import SchedulerService
-from app.utils.file_utils import atomic_write_text
+from app.core import config_store
 
 logger = logging.getLogger(__name__)
 
@@ -51,11 +50,14 @@ async def update_config(
         if not croniter.is_valid(cron_expr):
             raise HTTPException(status_code=400, detail="CRON表达式无效，请检查格式")
 
-        # 保存配置
-        atomic_write_text(CONFIG_PATH, yaml.dump(config_data, default_flow_style=False, allow_unicode=True))
+        # 写盘后以锁内读到的最新配置为准，避免用前端传来的旧副本覆盖别人的改动
+        def _merge(current):
+            current.update(config_data)
+
+        config_data = config_store.mutate(_merge)
 
         # 更新服务配置
-        hosts_manager.update_config(config_data)
+        hosts_manager.reload_whitelist()
         cloudflare_service.update_config(config_data)
 
         # 重启调度器
@@ -64,6 +66,8 @@ async def update_config(
         scheduler_service.start()
 
         return {"message": "配置已更新"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"更新配置失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"更新配置失败: {str(e)}")

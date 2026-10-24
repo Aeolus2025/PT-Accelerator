@@ -21,7 +21,6 @@ async def get_logs(lines: int = 1000):
             return {"logs": ""}
 
         # 使用 UTF-8 严格解码，遇到异常字符以替换符显示，避免抛错
-        from collections import deque
         dq = deque(maxlen=max(10, lines))
         with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
             for line in f:

@@ -1,23 +1,30 @@
 """路由层共享的配置读取与常量。"""
 
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 
-from app.utils.config_io import read_config
-
-CONFIG_PATH = "config/config.yaml"
-DEFAULT_CLOUDFLARE_IP = "104.16.91.215"  # 全局默认Cloudflare IP
+from app.core import config_store
+from app.core.constants import CONFIG_PATH
 
 
 def get_file_config() -> Dict[str, Any]:
-    """从文件读取最新配置，每次调用都重新读盘。
+    """从文件读取最新配置，每次调用都重新读盘。"""
+    return config_store.read(CONFIG_PATH)
 
-    不要与 app.globals.get_config 混用：后者返回内存对象，可能滞后于文件。
+
+def save_config_and_sync(change: Callable[[Dict[str, Any]], Any]) -> None:
+    """在锁内修改配置写盘，并刷新各服务手里的缓存。
+
+    必须传「修改函数」而不是改好的配置对象：调用方往往先 read 一份、
+    做几秒的检测、再写回，整份覆盖会把期间别人的改动一起冲掉。
+    修改函数在锁内拿到最新配置后原地改。
+
+    配置以磁盘为唯一来源，写盘后只需刷新各服务手里的缓存
+    （目前是 HostsManager 的 Cloudflare 白名单集合）。
     """
-    return read_config(CONFIG_PATH)
+    from app.globals import get_hosts_manager
 
+    config_store.mutate(change)
 
-def config_write_lock():
-    """跨进程配置写锁（实现在 app/main.py）。延迟导入以避免循环依赖。"""
-    from app.main import _config_write_lock as _lock
-
-    return _lock()
+    hosts_manager = get_hosts_manager()
+    if hosts_manager is not None:
+        hosts_manager.reload_whitelist()
