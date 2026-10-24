@@ -1091,6 +1091,10 @@ X-Custom: value"></textarea>
     <!-- Toast容器 -->
     <div class="toast-container position-fixed top-0 end-0 p-3"></div>
     
+    <!-- 将后端配置作为纯 JSON 安全嵌入，避免转义与语法高亮器误判。
+         必须放在所有脚本之前：store.js 加载时就要读它做首屏初始值 -->
+    <script id="app-config" type="application/json">{{ config | tojson | safe }}</script>
+
     <script src="/static/js/vendor/jquery.min.js?v={{ app_version }}"></script>
     <script src="/static/js/vendor/bootstrap.bundle.min.js?v={{ app_version }}"></script>
     <!-- 基础层：统一请求 / 单一配置源 / 通用 UI（含 toast、确认框、进度框） -->
@@ -1104,7 +1108,5 @@ X-Custom: value"></textarea>
     <script src="/static/js/pages/notify.js?v={{ app_version }}"></script>
     <script src="/static/js/pages/auth.js?v={{ app_version }}"></script>
     <script src="/static/js/main.js?v={{ app_version }}"></script>
-    <!-- 将后端配置作为纯 JSON 安全嵌入，避免转义与语法高亮器误判 -->
-    <script id="app-config" type="application/json">{{ config | tojson | safe }}</script>
 </body>
 </html>

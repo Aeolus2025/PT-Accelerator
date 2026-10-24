@@ -65,11 +65,7 @@ async def update_config(
         # 更新服务配置
         hosts_manager.reload_whitelist()
         cloudflare_service.update_config(config_data)
-
-        # 重启调度器
-        scheduler_service.stop()
         scheduler_service.update_config(config_data)
-        scheduler_service.start()
 
         return {"message": "配置已更新"}
     except HTTPException:

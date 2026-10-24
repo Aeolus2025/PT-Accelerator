@@ -340,6 +340,12 @@
                 }
                 fields.classList.remove('d-none');
             });
+
+            // 首屏若拿到空配置（如数据岛缺失），配置加载完成后再校正一次开关状态
+            store.load().then(function () {
+                initialAuthConfig = store.section('auth', {}) || {};
+                updateAuthUI(initialAuthConfig);
+            }).catch(function () { /* 加载失败时保持现状 */ });
         }
 
         setupPasswordValidation();

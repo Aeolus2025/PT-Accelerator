@@ -44,29 +44,24 @@ class SchedulerService:
         logger.info("已创建新的调度器实例")
     
     def update_config(self, config: Dict[str, Any]):
-        """更新配置"""
-        logger.info("更新调度器配置")
-        old_config = self.config
+        """更新配置；定时任务未变化时不碰调度器。
+
+        就地重建任务而不是 shutdown 重建调度器，避免打断正在执行的任务。
+        """
+        old_cf = (self.config or {}).get("cloudflare", {})
+        new_cf = (config or {}).get("cloudflare", {})
         self.config = config
-        
-        # 检查CRON是否变更
-        old_cron = old_config.get("cloudflare", {}).get("cron", "0 0 * * *")
-        new_cron = config.get("cloudflare", {}).get("cron", "0 0 * * *")
-        if old_cron != new_cron:
-            logger.info(f"CRON表达式已更新: {old_cron} -> {new_cron}")
-            
-            # 如果调度器正在运行，需要重启调度器
-            if self.is_running():
-                logger.info("由于CRON表达式变更，需要重启调度器")
-                self.stop()
-                self._create_scheduler()
-                self.start()
-            else:
-                # 调度器未运行，只需要更新任务配置
-                self._setup_jobs()
-        else:
-            # CRON未变更，只需要更新配置
-            logger.info("CRON表达式未变更，无需重启调度器")
+
+        # 只关心影响任务的字段：执行时间与是否启用
+        if old_cf.get("cron") == new_cf.get("cron") and old_cf.get("enable") == new_cf.get("enable"):
+            return
+
+        if not self.scheduler:
+            logger.info("调度器尚未创建，新配置将在启动时生效")
+            return
+
+        logger.info("定时任务配置已变更，重建任务")
+        self._setup_jobs()
     
     def _setup_jobs(self):
         """设置定时任务"""

@@ -134,7 +134,7 @@
     }
 
     function openHostsEditor() {
-        ui.showConfirmModal('确认操作', '此操作将修改系统Hosts文件，如果你不知道接下来该干什么请取消！', function () {
+        ui.showConfirmModal('确认操作', '此操作将修改系统Hosts文件，请谨慎操作！', function () {
             api.get('/api/current-hosts')
                 .then(function (data) {
                     var content = Array.isArray(data.hosts) ? data.hosts.join('') : (data.hosts || '');
