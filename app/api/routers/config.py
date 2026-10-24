@@ -12,6 +12,7 @@ from app.services.cfst import CloudflareSpeedTestService
 from app.services.hosts_manager import HostsManager
 from app.services.scheduler import SchedulerService
 from app.core import config_store
+from app.utils.oplog import log_op
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,8 @@ async def update_config(
             for key, value in (config_data or {}).items():
                 current[key] = value
 
+        # mutate 返回的是完整配置，提交的节名要先记下来
+        changed_sections = sorted(config_data or {})
         config_data = config_store.mutate(_merge)
 
         # 更新服务配置
@@ -67,9 +70,12 @@ async def update_config(
         cloudflare_service.update_config(config_data)
         scheduler_service.update_config(config_data)
 
+        log_op("config.update", sections=",".join(changed_sections))
         return {"message": "配置已更新"}
-    except HTTPException:
+    except HTTPException as e:
+        log_op("config.update", ok=False, level=logging.WARNING, reason=e.detail)
         raise
     except Exception as e:
         logger.error(f"更新配置失败: {str(e)}")
+        log_op("config.update", ok=False, error=str(e))
         raise HTTPException(status_code=500, detail=f"更新配置失败: {str(e)}")

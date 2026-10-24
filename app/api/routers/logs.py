@@ -1,46 +1,54 @@
 """日志查看与清空接口。"""
 
 import logging
-import os
-from collections import deque
+from typing import Optional
 
 from fastapi import APIRouter
+
+from app.core import logging_setup
+from app.utils.oplog import log_op
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-# 获取日志
 @router.get("/logs")
-async def get_logs(lines: int = 1000):
-    """获取最近的日志，统一按UTF-8读取并返回字符串，避免分块解码导致的乱码。"""
-    log_file = "logs/app.log"
-    try:
-        if not os.path.exists(log_file):
-            return {"logs": ""}
+async def get_logs(
+    lines: int = 1000,
+    level: Optional[str] = None,
+    offset: int = 0,
+):
+    """读取日志。
 
-        # 使用 UTF-8 严格解码，遇到异常字符以替换符显示，避免抛错
-        dq = deque(maxlen=max(10, lines))
-        with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
-            for line in f:
-                dq.append(line.rstrip('\n'))
-        return {"logs": "\n".join(list(dq)[-lines:])}
+    level 为逗号分隔的级别列表，如 `WARNING,ERROR`；offset 传上次返回的值即可增量拉取。
+    """
+    try:
+        levels = [item.strip().upper() for item in (level or "").split(",") if item.strip()]
+        result = logging_setup.read_logs(offset=offset, max_lines=lines, levels=levels)
+        # 兼容旧前端：仍提供拼接好的整串
+        result["logs"] = "\n".join(record["text"] for record in result["records"])
+        return result
     except Exception as e:
         logger.error(f"获取日志失败: {str(e)}")
-        return {"logs": "日志读取失败，请检查日志文件权限和编码"}
+        return {
+            "logs": "",
+            "records": [],
+            "offset": 0,
+            "size": 0,
+            "truncated": False,
+            "levels": {},
+            "error": "日志读取失败，请检查日志文件权限和编码",
+        }
+
 
 @router.post("/logs/clear")
 async def clear_logs():
-    """清空日志文件内容"""
+    """清空日志文件。"""
     try:
-        log_file = "logs/app.log"
-        # 确保目录存在
-        os.makedirs(os.path.dirname(log_file), exist_ok=True)
-        # 以写模式截断文件
-        with open(log_file, 'w', encoding='utf-8') as f:
-            f.write("")
-        logger.info("日志文件已被清空")
+        logging_setup.truncate_log()
+        # 先截断再记：写在下一次打开的新文件里，所以这一行不会被自己清掉
+        log_op("logs.clear")
         return {"success": True, "message": "日志已清空"}
     except Exception as e:
         logger.error(f"清空日志失败: {str(e)}")

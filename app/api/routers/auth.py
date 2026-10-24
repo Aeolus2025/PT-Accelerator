@@ -11,6 +11,7 @@ from app.auth import get_current_user
 from app.auth import generate_initial_password, get_password_hash, verify_password
 from app.models import User
 from app.core import config_store
+from app.utils.oplog import log_op
 
 logger = logging.getLogger(__name__)
 
@@ -137,10 +138,15 @@ async def _update_auth_config_locked(
             else:
                 message += " 为确保配置立即生效，您已自动登出，请重新登录。"
             
+            log_op("auth.update", target=auth_settings.get("username"),
+                   enabled=auth_settings.get("enable"),
+                   password_changed=bool(new_password))
             return {"message": message}
         except Exception as e:
             logger.error(f"更新认证配置失败: {str(e)}")
+            log_op("auth.update", ok=False, error=str(e))
             raise HTTPException(status_code=500, detail=f"更新认证配置失败: {str(e)}")
-    
+
+    log_op("auth.update", target=auth_settings.get("username"), changed=False)
     return {"message": "未检测到配置更改"}
 

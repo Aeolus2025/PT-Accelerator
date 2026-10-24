@@ -163,6 +163,27 @@ body {
     line-height: 1.5;
 }
 
+.log-rec {
+    display: block;
+    white-space: pre-wrap;
+    padding: 1px 0;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.log-rec.lv-debug { color: #6c757d; }
+.log-rec.lv-info { color: #212529; }
+.log-rec.lv-warning { color: #b8860b; }
+.log-rec.lv-error,
+.log-rec.lv-critical { color: #c0392b; font-weight: 600; }
+
+/* 用 span 是为了符合 <pre> 的 phrasing content 模型，靠这里恢复块级占位 */
+.log-empty {
+    display: block;
+    color: #6c757d;
+    text-align: center;
+    padding: 40px 0;
+}
+
 .result-table {
     margin-top: 20px;
 }

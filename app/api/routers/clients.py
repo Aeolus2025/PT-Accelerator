@@ -12,6 +12,7 @@ from app.core.constants import DEFAULT_CLOUDFLARE_IP
 from app.services import domain_service
 from app.globals import get_hosts_manager, get_torrent_client_manager
 from app.services.hosts_manager import HostsManager
+from app.utils.oplog import log_op
 from app.services.torrent_clients import TorrentClientManager
 from app.utils import log_utils
 from app.core import config_store
@@ -96,10 +97,12 @@ async def save_torrent_clients(
         torrent_client_manager.update_config(config)
         
         logger.info(f"下载器客户端配置已保存，共 {len(clients_config)} 个客户端")
+        log_op("client.save", count=len(clients_config))
         return {"success": True, "message": f"下载器配置已保存，共 {len(clients_config)} 个客户端"}
-        
+
     except Exception as e:
         logger.error(f"保存下载器客户端配置失败: {str(e)}")
+        log_op("client.save", ok=False, error=str(e))
         return {"success": False, "message": f"保存配置失败: {str(e)}"}
 
 # 测试下载器连接 - 支持通过ID或配置测试
@@ -122,11 +125,14 @@ async def test_client_connection(
             result = torrent_client_manager.test_client_connection_by_config(client_config)
         else:
             return {"success": False, "message": "请提供 client_id 或 client_config"}
-        
+
+        log_op("client.test", target=client_id or (client_config or {}).get("name", "临时配置"),
+               ok=bool(result.get("success")))
         return result
-        
+
     except Exception as e:
         logger.error(f"测试下载器连接失败: {str(e)}")
+        log_op("client.test", ok=False, error=str(e))
         return {"success": False, "message": f"测试连接失败: {str(e)}"}
 
 # 删除下载器客户端
@@ -143,6 +149,7 @@ async def delete_torrent_client(
         updated_clients = [client for client in clients_config if client.get("id") != client_id]
         
         if len(updated_clients) == len(clients_config):
+            log_op("client.delete", target=client_id, ok=False, level=logging.WARNING, reason="未找到")
             return {"success": False, "message": f"未找到客户端: {client_id}"}
         
         config_store.mutate(lambda current: current.__setitem__("torrent_clients", updated_clients))
@@ -153,10 +160,12 @@ async def delete_torrent_client(
         torrent_client_manager.update_config(config)
         
         logger.info(f"已删除下载器客户端: {client_id}")
+        log_op("client.delete", target=client_id)
         return {"success": True, "message": "客户端已删除"}
-        
+
     except Exception as e:
         logger.error(f"删除下载器客户端失败: {str(e)}")
+        log_op("client.delete", target=client_id, ok=False, error=str(e))
         return {"success": False, "message": f"删除客户端失败: {str(e)}"}
 
 # 获取支持的客户端类型
@@ -217,7 +226,7 @@ async def import_trackers_from_clients(
                 non_cf_domains = []
 
                 # 临时调整日志级别为DEBUG，以便查看详细的Cloudflare检测日志
-                with log_utils.temporary_log_level('app.services.hosts_manager', logging.DEBUG):
+                with log_utils.temporary_log_level('app.services.hosts.manager', logging.DEBUG):
                     # 域名清洗和Cloudflare检测
                     for domain in result["all_domains"]:
                         domain = domain_service.clean_domain(domain)
@@ -305,4 +314,7 @@ async def import_trackers_from_clients(
     if result.pop("hosts_update_needed", False):
         background_tasks.add_task(hosts_manager.update_hosts)
 
+    ok = result.get("status") == "success"
+    log_op("tracker.import", target=client_id or "all", ok=ok,
+           reason=None if ok else result.get("message"))
     return result

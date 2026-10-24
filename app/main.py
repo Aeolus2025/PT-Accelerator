@@ -24,21 +24,13 @@ from app.core import config_store
 from app.core.constants import CONFIG_PATH, DEFAULT_CLOUDFLARE_IP
 from app.core.defaults import DEFAULT_CONFIG
 from app.core.locking import config_write_lock
+from app.core.logging_setup import setup_logging
 from version import get_version
 
-# 优先确保目录存在
-os.makedirs("logs", exist_ok=True)
+# config 目录要在读配置前就存在；logs 由 setup_logging 负责
 os.makedirs("config", exist_ok=True)
 
-# 配置日志（文件使用UTF-8编码，避免中文乱码）
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("logs/app.log", encoding="utf-8")
-    ]
-)
+setup_logging()
 logger = logging.getLogger(__name__)
 
 # 创建nowip_hosts.txt文件，确保cfst_hosts.sh脚本能正常运行

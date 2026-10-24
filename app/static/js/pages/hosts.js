@@ -68,53 +68,6 @@
             });
     }
 
-    function loadLogs() {
-        api.get('/api/logs')
-            .then(function (data) {
-                var logsElement = document.getElementById('logs');
-                if (!logsElement) return;
-                // 后端可能返回带换行的字符串或数组
-                if (typeof data.logs === 'string' && data.logs.length > 0) {
-                    logsElement.textContent = data.logs;
-                    logsElement.scrollTop = logsElement.scrollHeight;
-                } else if (Array.isArray(data.logs) && data.logs.length > 0) {
-                    logsElement.textContent = data.logs.join('');
-                    logsElement.scrollTop = logsElement.scrollHeight;
-                } else {
-                    logsElement.textContent = '暂无日志';
-                }
-            })
-            .catch(function (error) {
-                console.error('加载日志失败:', error);
-                var logsElement = document.getElementById('logs');
-                if (logsElement) logsElement.textContent = '加载日志失败';
-            });
-    }
-
-    function clearLogs(btn) {
-        ui.showConfirmModal('确认操作', '确定要清空系统日志吗？此操作不可恢复。', function () {
-            btn.disabled = true;
-            api.post('/api/logs/clear')
-                .then(function (res) {
-                    if (res && res.success) {
-                        ui.showToast(res.message || '日志已清空', 'success');
-                        var logsElement = document.getElementById('logs');
-                        if (logsElement) logsElement.textContent = '';
-                        loadLogs();
-                    } else {
-                        ui.showToast((res && res.message) || '清空日志失败', 'danger');
-                    }
-                })
-                .catch(function (err) {
-                    console.error('清空日志失败:', err);
-                    ui.showToast('清空日志失败: ' + err.message, 'danger');
-                })
-                .finally(function () {
-                    btn.disabled = false;
-                });
-        });
-    }
-
     function loadCurrentHosts() {
         api.get('/api/current-hosts')
             .then(function (data) {
@@ -202,12 +155,6 @@
         ui.delegate(document, 'click', '#btn-save-hosts-source', function () {
             saveHostsSource();
         });
-        ui.delegate(document, 'click', '#btn-refresh-logs', function () {
-            loadLogs();
-        });
-        ui.delegate(document, 'click', '#btn-clear-logs', function () {
-            clearLogs(this);
-        });
         ui.delegate(document, 'click', '#btn-edit-hosts', function () {
             openHostsEditor();
         });
@@ -216,7 +163,6 @@
         });
 
         loadHostsSources();
-        loadLogs();
         loadCurrentHosts();
     }
 
@@ -225,7 +171,6 @@
         loadHostsSources: loadHostsSources,
         renderHostsSourceTable: renderHostsSourceTable,
         deleteHostsSource: deleteHostsSource,
-        loadLogs: loadLogs,
         loadCurrentHosts: loadCurrentHosts
     };
 })(window);

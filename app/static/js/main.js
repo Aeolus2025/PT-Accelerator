@@ -9,6 +9,7 @@
         global.dashboardPage.init();
         global.trackersPage.init();
         global.hostsPage.init();
+        global.logsPage.init();
         global.clientsPage.init();
         global.notifyPage.initNotifySettings();
         global.authPage.initAuthSettings();

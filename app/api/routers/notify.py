@@ -12,6 +12,7 @@ from app.utils import notify as notify_module
 from app.utils import notify_channel
 from app.utils import notify_template
 from app.core import config_store
+from app.utils.oplog import log_op
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +47,11 @@ async def save_notify_config(payload: Dict[str, Any]):
         config_store.mutate(_merge)
 
         logger.info("通知配置已保存")
+        log_op("notify.save", channels=len((new_notify.get("channels") or {})))
         return {"success": True, "message": "通知配置已保存"}
     except Exception as e:
         logger.error(f"保存通知配置失败: {str(e)}")
+        log_op("notify.save", ok=False, error=str(e))
         return {"success": False, "message": f"保存通知配置失败: {str(e)}"}
 
 
@@ -136,6 +139,7 @@ async def test_notify(payload: Dict[str, Any]):
                     break
 
         if not valid_payloads:
+            log_op("notify.test", ok=False, level=logging.WARNING, reason="无可用渠道")
             return {"success": False, "message": "未检测到可用的通知渠道，请检查渠道是否启用且配置完整"}
 
         # 跳过标题列表
@@ -150,9 +154,11 @@ async def test_notify(payload: Dict[str, Any]):
             await run_in_threadpool(
                 notify_module.send, title, content, True, **flat
             )
+        log_op("notify.test", title=title, channels=len(valid_payloads))
         return {"success": True, "message": "测试通知请求已发出，请检查渠道接收情况"}
     except Exception as e:
         logger.error(f"测试通知发送失败: {str(e)}", exc_info=True)
+        log_op("notify.test", ok=False, error=str(e))
         return {"success": False, "message": f"测试通知失败: {str(e)}"}
 
 

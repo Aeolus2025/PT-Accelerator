@@ -11,6 +11,7 @@ from app.core import config_store
 from app.globals import get_hosts_manager
 from app.services.hosts_manager import HostsManager
 from app.services.task_notify import send_task_notify
+from app.utils.oplog import log_op
 
 logger = logging.getLogger(__name__)
 
@@ -50,11 +51,14 @@ async def add_hosts_source(
             
         # 异步更新hosts
         background_tasks.add_task(hosts_manager.update_hosts)
+        log_op("hosts.source_add", url=url)
         return {"message": "hosts源已添加，正在后台更新hosts"}
-    except HTTPException:
+    except HTTPException as e:
+        log_op("hosts.source_add", ok=False, level=logging.WARNING, reason=e.detail)
         raise
     except Exception as e:
         logger.error(f"添加hosts源失败: {str(e)}")
+        log_op("hosts.source_add", ok=False, error=str(e))
         raise HTTPException(status_code=500, detail=f"添加hosts源失败: {str(e)}")
 
 
@@ -80,11 +84,14 @@ async def delete_hosts_source(
             
         # 异步更新hosts
         background_tasks.add_task(hosts_manager.update_hosts)
+        log_op("hosts.source_remove", url=url)
         return {"message": "hosts源已删除，正在后台更新hosts"}
-    except HTTPException:
+    except HTTPException as e:
+        log_op("hosts.source_remove", ok=False, level=logging.WARNING, reason=e.detail)
         raise
     except Exception as e:
         logger.error(f"删除hosts源失败: {str(e)}")
+        log_op("hosts.source_remove", ok=False, error=str(e))
         raise HTTPException(status_code=500, detail=f"删除hosts源失败: {str(e)}")
 
 
@@ -103,9 +110,11 @@ async def update_hosts(
             logger.info(f"[任务通知] 仅更新Hosts -> {msg}")
             send_task_notify("仅更新Hosts", msg)
         background_tasks.add_task(task)
+        log_op("hosts.update")
         return {"message": "hosts更新任务已启动"}
     except Exception as e:
         logger.error(f"更新hosts失败: {str(e)}")
+        log_op("hosts.update", ok=False, error=str(e))
         raise HTTPException(status_code=500, detail=f"更新hosts失败: {str(e)}")
 
 
@@ -137,9 +146,11 @@ async def run_cfst_script(
             logger.info(f"[任务通知] IP优选与Hosts更新 -> {msg}")
             send_task_notify("IP优选与Hosts更新", msg)
         background_tasks.add_task(combined_task)
+        log_op("cfst.run")
         return {"message": "IP优选与Hosts更新任务已启动（严格串行）"}
     except Exception as e:
         logger.error(f"启动组合任务失败: {str(e)}")
+        log_op("cfst.run", ok=False, error=str(e))
         raise HTTPException(status_code=500, detail=f"启动组合任务失败: {str(e)}")
 
 
@@ -154,9 +165,11 @@ async def update_all_trackers(
         # _update_all_trackers_ip 内部已写盘并同步内存副本，这里无需再同步
         hosts_manager._update_all_trackers_ip(ip)
         hosts_manager.update_hosts()
+        log_op("tracker.set_ip_all", ip=ip)
         return {"message": f"已将所有Tracker的IP更新为 {ip}"}
     except Exception as e:
         logger.error(f"更新所有Tracker的IP失败: {str(e)}")
+        log_op("tracker.set_ip_all", ok=False, ip=ip, error=str(e))
         raise HTTPException(status_code=500, detail=f"更新所有Tracker的IP失败: {str(e)}")
 
 
@@ -176,9 +189,11 @@ async def clear_and_update_hosts(
             logger.info(f"[任务通知] 清空并更新Hosts -> {msg}")
             send_task_notify("清空并更新Hosts", msg)
         background_tasks.add_task(task)
+        log_op("hosts.rebuild")
         return {"message": "已清理项目分区并启动更新任务（原有hosts内容已保留）"}
     except Exception as e:
         logger.error(f"清空并更新hosts失败: {str(e)}")
+        log_op("hosts.rebuild", ok=False, error=str(e))
         raise HTTPException(status_code=500, detail=f"清空并更新hosts失败: {str(e)}")
 
 
@@ -198,11 +213,14 @@ async def save_hosts_content(
         removed = hosts_manager.save_user_content(content)
         # 保存后触发一次后台更新，确保项目分区一致（非阻塞）
         background_tasks.add_task(hosts_manager.update_hosts)
+        log_op("hosts.save_content", removed_sections=removed, size=len(content))
         return {"success": True, "message": "Hosts已保存，已启动后台更新", "removed_sections": removed}
-    except HTTPException:
+    except HTTPException as e:
+        log_op("hosts.save_content", ok=False, level=logging.WARNING, reason=e.detail)
         raise
     except Exception as e:
         logger.error(f"保存hosts失败: {str(e)}")
+        log_op("hosts.save_content", ok=False, error=str(e))
         raise HTTPException(status_code=500, detail=f"保存hosts失败: {str(e)}")
 
 
