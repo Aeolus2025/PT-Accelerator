@@ -53,12 +53,6 @@ def write(config_path: str, data: Dict[str, Any]) -> None:
     )
 
 
-def save(data: Dict[str, Any], config_path: str = CONFIG_PATH) -> None:
-    """带跨进程锁地整体覆盖写入。"""
-    with config_write_lock():
-        write(config_path, data)
-
-
 def update(partial_update: Dict[str, Any], config_path: str = CONFIG_PATH) -> Dict[str, Any]:
     """读盘后合并局部更新再写回，避免覆盖其它未修改的配置。
 
@@ -72,27 +66,10 @@ def update(partial_update: Dict[str, Any], config_path: str = CONFIG_PATH) -> Di
         return current
 
 
-def patch_section(section: str, patch: Dict[str, Any], config_path: str = CONFIG_PATH) -> Dict[str, Any]:
-    """只更新配置的某一节（如 notify / cloudflare），其余节原样保留。
-
-    这是最常用的写模式：前端只想改自己那一页的设置，
-    整份写回会把其它节一起覆盖成前端手里的旧副本。
-    返回该节合并后的内容。
-    """
-    with config_write_lock():
-        current = read(config_path)
-        existing = current.get(section)
-        merged = dict(existing) if isinstance(existing, dict) else {}
-        merged.update(patch or {})
-        current[section] = merged
-        write(config_path, current)
-    return merged
-
-
 def mutate(change: Callable[[Dict[str, Any]], Any], config_path: str = CONFIG_PATH) -> Dict[str, Any]:
     """在锁内读最新配置，交给 change 原地修改，再写回。
 
-    用于列表增删改这类 patch_section 表达不了的操作。调用方不能再先
+    用于按节合并之外的修改（如列表增删改）。调用方不能再先
     自己 read() 一份旧副本再改，否则并发请求会互相覆盖。
     返回修改后的完整配置。
     """

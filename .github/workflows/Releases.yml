@@ -35,6 +35,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.1
 
+      # 只做静态检查不加测试：tests/ 不入库，但 pyflakes 能在数秒内
+      # 拦下未定义名、重复定义这类改坏即崩的错误，成本远低于跑一次多架构构建
+      - name: Lint (pyflakes)
+        run: |
+          python3 -m pip install --quiet pyflakes
+          python3 -m pyflakes app/
+          echo "pyflakes 通过"
+
       - name: Set up QEMU
         # 所有路径都要构建 arm64（推送前在 CI 里就暴露架构相关问题，而不是等发 tag 时才发现）
         uses: docker/setup-qemu-action@v4.4.0

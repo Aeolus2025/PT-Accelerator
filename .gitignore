@@ -68,6 +68,9 @@ nowip_hosts.txt
 .idea/
 .vscode/
 
+# 外部 hosts 源的本地缓存（运行时生成）
+cache/
+
 # 本地开发文档与测试脚本（不入库）
 docs/
 tests/

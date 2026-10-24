@@ -43,16 +43,22 @@ async def update_config(
     cloudflare_service: CloudflareSpeedTestService = Depends(get_cloudflare_service),
     scheduler_service: SchedulerService = Depends(get_scheduler_service),
 ):
-    """更新配置"""
-    try:
-        # CRON表达式校验
-        cron_expr = config_data.get("cloudflare", {}).get("cron", "0 0 * * *")
-        if not croniter.is_valid(cron_expr):
-            raise HTTPException(status_code=400, detail="CRON表达式无效，请检查格式")
+    """更新配置。
 
-        # 写盘后以锁内读到的最新配置为准，避免用前端传来的旧副本覆盖别人的改动
+    只合并请求体里出现的顶层节，未提交的节保持文件中的最新值，
+    这样多标签页各自保存自己那一页时不会互相覆盖。
+    """
+    try:
+        # CRON表达式校验（只在本次真的提交 cloudflare 节时校验）
+        if "cloudflare" in config_data:
+            cron_expr = (config_data.get("cloudflare") or {}).get("cron", "0 0 * * *")
+            if not croniter.is_valid(cron_expr):
+                raise HTTPException(status_code=400, detail="CRON表达式无效，请检查格式")
+
+        # 只按节覆盖请求里带来的键，其余节保留锁内读到的最新值
         def _merge(current):
-            current.update(config_data)
+            for key, value in (config_data or {}).items():
+                current[key] = value
 
         config_data = config_store.mutate(_merge)
 

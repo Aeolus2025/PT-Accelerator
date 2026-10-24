@@ -7,9 +7,9 @@ import os
 import copy
 import logging
 import platform
-import yaml
 import uvicorn
 import secrets
+from contextlib import asynccontextmanager
 from typing import Optional
 
 from starlette.middleware.sessions import SessionMiddleware
@@ -66,24 +66,18 @@ def create_nowip_file():
 # 加载或创建配置文件
 def load_config():
     if not os.path.exists(CONFIG_PATH):
-        if not DEFAULT_CONFIG["auth"].get("secret_key"):
-            DEFAULT_CONFIG["auth"]["secret_key"] = secrets.token_hex(32)
-        config_store.write(CONFIG_PATH, DEFAULT_CONFIG)
+        # 首次创建在锁内完成，避免多 worker 同时启动各写一份不同的 secret_key
+        with config_write_lock():
+            if not os.path.exists(CONFIG_PATH):
+                if not DEFAULT_CONFIG["auth"].get("secret_key"):
+                    DEFAULT_CONFIG["auth"]["secret_key"] = secrets.token_hex(32)
+                config_store.write(CONFIG_PATH, DEFAULT_CONFIG)
         # 深拷贝：运行时对 config 的修改（增删 tracker / hosts_sources 等）不能污染 DEFAULT_CONFIG
         current_config = copy.deepcopy(DEFAULT_CONFIG)
     else:
-        # 读取配置：UTF-8优先，回退GBK/GB18030
-        try:
-            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-                current_config = yaml.safe_load(f)
-        except UnicodeDecodeError:
-            try:
-                with open(CONFIG_PATH, 'r', encoding='gbk') as f:
-                    current_config = yaml.safe_load(f)
-            except UnicodeDecodeError:
-                with open(CONFIG_PATH, 'r', encoding='gb18030') as f:
-                    current_config = yaml.safe_load(f)
-        
+        # 读取与编码回退统一交给 config_store，避免两处实现不一致
+        current_config = config_store.read(CONFIG_PATH)
+
         if not current_config:
             current_config = DEFAULT_CONFIG.copy()
 
@@ -108,7 +102,8 @@ def load_config():
                 need_save_after_load = True
         
         if need_save_after_load:
-            config_store.write(CONFIG_PATH, current_config)
+            with config_write_lock():
+                config_store.write(CONFIG_PATH, current_config)
 
     # 初始化认证模块的 session_serializer
     if current_config.get("auth", {}).get("secret_key"):
@@ -121,7 +116,8 @@ def load_config():
         logger.warning("配置文件中未找到 secret_key，已生成临时的 secret_key。请检查配置文件。")
         # 尝试保存回文件
         try:
-            config_store.write(CONFIG_PATH, current_config)
+            with config_write_lock():
+                config_store.write(CONFIG_PATH, current_config)
             logger.info("已将生成的临时 secret_key 保存回配置文件。")
         except Exception as e:
             logger.error(f"保存临时 secret_key 到配置文件失败: {e}")
@@ -137,7 +133,16 @@ create_nowip_file()
 # 全局读取请用 config_store.read()：内存对象会滞后于文件。
 _startup_config = load_config()
 # 创建应用
-app = FastAPI(title="PT-Accelerator")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """启动时拉起调度器并补齐认证配置，关闭时停止调度器。"""
+    startup()
+    yield
+    scheduler_service.stop()
+    logger.info("应用已关闭，调度器已停止")
+
+
+app = FastAPI(title="PT-Accelerator", lifespan=lifespan)
 
 # 添加 SessionMiddleware, secret_key 从配置中读取
 # 确保在所有路由之前添加中间件
@@ -286,8 +291,7 @@ async def home(request: Request, current_user: Optional[User] = Depends(get_curr
     )
 
 # 运行时更新配置
-@app.on_event("startup")
-async def startup_event():
+def startup():
     # 启动调度器
     scheduler_service.start()
     logger.info("应用已启动，调度器已开始运行")
@@ -325,13 +329,6 @@ async def startup_event():
             except Exception as e:
                 logger.error(f"保存认证配置失败: {e}")
 
-
-
-# 关闭时停止调度器
-@app.on_event("shutdown")
-async def shutdown_event():
-    scheduler_service.stop()
-    logger.info("应用已关闭，调度器已停止")
 
 if __name__ == "__main__":
     # 从环境变量中获取端口，如果未设置，则默认为23333

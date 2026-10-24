@@ -97,7 +97,7 @@ class SchedulerService:
                     task_registry.start(TASK_NAME, "正在执行定时IP优选任务")
                     try:
                         ok = self.hosts_manager.run_cfst_and_update_hosts()
-                        status = self.hosts_manager.get_task_status() if hasattr(self.hosts_manager, 'get_task_status') else {}
+                        status = self.hosts_manager.get_task_status()
                         msg = status.get('message') if isinstance(status, dict) else ("定时IP优选任务完成" if ok else "定时IP优选任务失败")
                         task_registry.finish(TASK_NAME, msg)
                         task_duration = time.time() - task_start_time

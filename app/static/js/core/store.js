@@ -1,8 +1,8 @@
 /**
  * 配置状态：单一数据源，写操作合并提交
  *
- * POST /api/config 是整份覆盖且会重启调度器，所以前端必须持有完整配置副本，
- * 并把连续修改合并成一次提交。
+ * POST /api/config 一次提交会重启调度器，所以前端持有完整配置副本，
+ * 但提交时只带变更过的顶层节（见 changedKeys），避免多标签页互相覆盖。
  */
 (function (global) {
     'use strict';
@@ -26,6 +26,8 @@
         var listeners = [];
         var dirty = false;
         var inflightWrite = null;
+        // 自上次成功提交以来改动过的顶层节；提交时只发送这些节
+        var changedKeys = {};
 
         function get() {
             if (state === null) state = opts.initial || {};
@@ -71,12 +73,30 @@
             dirty = false;
 
             function step() {
-                return global.api.post(ENDPOINT, wrap(get())).then(function () {
+                var keys = Object.keys(changedKeys);
+                if (!keys.length) {
+                    return Promise.resolve(get());
+                }
+
+                var slice = {};
+                var cur = get();
+                for (var i = 0; i < keys.length; i++) {
+                    if (Object.prototype.hasOwnProperty.call(cur, keys[i])) {
+                        slice[keys[i]] = cur[keys[i]];
+                    }
+                }
+                changedKeys = {};
+
+                return global.api.post(ENDPOINT, wrap(slice)).then(function () {
                     if (dirty) {
                         dirty = false;
                         return step();
                     }
                     return get();
+                }, function (e) {
+                    // 提交失败，变更节留待下次重试
+                    for (var j = 0; j < keys.length; j++) changedKeys[keys[j]] = true;
+                    throw e;
                 });
             }
 
@@ -104,7 +124,10 @@
                 if (Object.prototype.hasOwnProperty.call(cur, k)) next[k] = cur[k];
             }
             for (var p in partial) {
-                if (Object.prototype.hasOwnProperty.call(partial, p)) next[p] = partial[p];
+                if (Object.prototype.hasOwnProperty.call(partial, p)) {
+                    next[p] = partial[p];
+                    changedKeys[p] = true;
+                }
             }
             state = next;
             notify();
@@ -121,6 +144,7 @@
             load: load,
             patch: patch,
             flush: flush,
+            changedKeys: function () { return Object.keys(changedKeys); },
             subscribe: function (fn) {
                 listeners.push(fn);
                 return function unsubscribe() {

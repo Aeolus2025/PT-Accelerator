@@ -36,8 +36,14 @@ async def save_notify_config(payload: Dict[str, Any]):
         if not isinstance(new_notify, dict):
             return {"success": False, "message": "无效的通知配置"}
 
-        # 只写 notify 这一节，其余配置原样保留
-        config_store.mutate(lambda current: current.__setitem__("notify", new_notify))
+        # 只合并请求里带来的通知字段，其余字段保留文件中最新值
+        def _merge(current):
+            existing = current.get("notify")
+            merged = dict(existing) if isinstance(existing, dict) else {}
+            merged.update(new_notify)
+            current["notify"] = merged
+
+        config_store.mutate(_merge)
 
         logger.info("通知配置已保存")
         return {"success": True, "message": "通知配置已保存"}
