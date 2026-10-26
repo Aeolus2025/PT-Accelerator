@@ -251,17 +251,17 @@
         updateAllTrackersIp(ip);
     }
 
-    function clearAndUpdateHosts(btn) {
-        ui.showConfirmModal('确认操作', '确定要清理由本项目写入的 hosts 分区并重新生成吗？此操作不会清空您原有的 hosts 内容。建议先备份。', function () {
+    function clearGeneratedHosts(btn) {
+        ui.showConfirmModal('确认操作', '确定要删除本项目生成的 hosts 记录吗？系统原有的 hosts 内容不会受影响。', function () {
             btn.disabled = true;
-            ui.showToast('正在执行清理并更新hosts，请稍候...', 'info', 10000);
-            api.post('/api/clear-and-update-hosts', undefined, { timeout: 0 })
+            ui.showToast('正在清空生成的 hosts 记录...', 'info', 5000);
+            api.post('/api/clear-generated-hosts')
                 .then(function (data) {
-                    ui.showToast(data.message || '已清理项目分区并更新hosts', 'success', 10000);
+                    ui.showToast(data.message || '已清空生成的 hosts 记录', 'success', 8000);
                     global.hostsPage.loadCurrentHosts();
                 })
                 .catch(function (error) {
-                    ui.showToast('清理并更新hosts失败: ' + error.message, 'danger', 10000);
+                    ui.showToast('清空生成的 hosts 失败: ' + error.message, 'danger', 8000);
                 })
                 .finally(function () {
                     btn.disabled = false;
@@ -353,8 +353,8 @@
         ui.delegate(document, 'click', '#btn-update-all-trackers', function () {
             updateAllTrackersFromInput();
         });
-        ui.delegate(document, 'click', '#btn-clear-and-update-hosts', function () {
-            clearAndUpdateHosts(this);
+        ui.delegate(document, 'click', '#btn-clear-generated-hosts', function () {
+            clearGeneratedHosts(this);
         });
         ui.delegate(document, 'click', '#btn-clear-all-trackers', function () {
             clearAllTrackers(this);

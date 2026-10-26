@@ -45,7 +45,7 @@ async def get_torrent_clients(config: Dict[str, Any] = Depends(get_file_config))
         
         return {"success": True, "clients": clients_config}
     except Exception as e:
-        logger.error(f"获取下载器客户端列表失败: {str(e)}")
+        logger.exception("[CLIENT] 获取下载器客户端列表失败: %s", str(e))
         return {"success": False, "message": f"获取客户端列表失败: {str(e)}"}
 
 # 保存下载器客户端配置
@@ -96,13 +96,13 @@ async def save_torrent_clients(
         torrent_client_manager = get_torrent_client_manager()
         torrent_client_manager.update_config(config)
         
-        logger.info(f"下载器客户端配置已保存，共 {len(clients_config)} 个客户端")
-        log_op("client.save", count=len(clients_config))
+        logger.info("[CLIENT] 下载器客户端配置已保存，共 %s 个客户端", len(clients_config))
+        log_op("保存下载器", 数量=len(clients_config))
         return {"success": True, "message": f"下载器配置已保存，共 {len(clients_config)} 个客户端"}
 
     except Exception as e:
-        logger.error(f"保存下载器客户端配置失败: {str(e)}")
-        log_op("client.save", ok=False, error=str(e))
+        logger.exception("[CLIENT] 保存下载器客户端配置失败: %s", str(e))
+        log_op("保存下载器", ok=False, 错误=str(e))
         return {"success": False, "message": f"保存配置失败: {str(e)}"}
 
 # 测试下载器连接 - 支持通过ID或配置测试
@@ -126,13 +126,13 @@ async def test_client_connection(
         else:
             return {"success": False, "message": "请提供 client_id 或 client_config"}
 
-        log_op("client.test", target=client_id or (client_config or {}).get("name", "临时配置"),
+        log_op("测试下载器连接", 目标=client_id or (client_config or {}).get("name", "临时配置"),
                ok=bool(result.get("success")))
         return result
 
     except Exception as e:
-        logger.error(f"测试下载器连接失败: {str(e)}")
-        log_op("client.test", ok=False, error=str(e))
+        logger.exception("[CLIENT] 测试下载器连接失败: %s", str(e))
+        log_op("测试下载器连接", ok=False, 错误=str(e))
         return {"success": False, "message": f"测试连接失败: {str(e)}"}
 
 # 删除下载器客户端
@@ -149,7 +149,7 @@ async def delete_torrent_client(
         updated_clients = [client for client in clients_config if client.get("id") != client_id]
         
         if len(updated_clients) == len(clients_config):
-            log_op("client.delete", target=client_id, ok=False, level=logging.WARNING, reason="未找到")
+            log_op("删除下载器", 目标=client_id, ok=False, level=logging.WARNING, 原因="未找到")
             return {"success": False, "message": f"未找到客户端: {client_id}"}
         
         config_store.mutate(lambda current: current.__setitem__("torrent_clients", updated_clients))
@@ -159,13 +159,13 @@ async def delete_torrent_client(
         torrent_client_manager = get_torrent_client_manager()
         torrent_client_manager.update_config(config)
         
-        logger.info(f"已删除下载器客户端: {client_id}")
-        log_op("client.delete", target=client_id)
+        logger.info("[CLIENT] 已删除下载器客户端: %s", client_id)
+        log_op("删除下载器", 目标=client_id)
         return {"success": True, "message": "客户端已删除"}
 
     except Exception as e:
-        logger.error(f"删除下载器客户端失败: {str(e)}")
-        log_op("client.delete", target=client_id, ok=False, error=str(e))
+        logger.exception("[CLIENT] 删除下载器客户端失败: %s", str(e))
+        log_op("删除下载器", 目标=client_id, ok=False, 错误=str(e))
         return {"success": False, "message": f"删除客户端失败: {str(e)}"}
 
 # 获取支持的客户端类型
@@ -208,16 +208,16 @@ async def import_trackers_from_clients(
     表现为"导入完成后页面不会自动刷新"。
     """
     if client_id:
-        logger.info(f"开始从下载器客户端导入Tracker（指定 client_id={client_id}）")
+        logger.info("[CLIENT] 开始导入Tracker 下载器=%s", client_id)
     else:
-        logger.info("开始从下载器客户端导入Tracker（全部已启用）")
+        logger.info("[CLIENT] 开始从下载器客户端导入Tracker（全部已启用）")
 
     def _do_import() -> Dict[str, Any]:
         """同步执行完整导入流程（在线程池中运行）"""
         try:
             torrent_client_manager = get_torrent_client_manager()
             result = torrent_client_manager.import_trackers_from_clients(client_id)
-            logger.info(f"导入结果: {result}")
+            logger.info("[CLIENT] 导入结果: %s", result)
 
             if result.get("status") == "success" and result.get("all_domains"):
                 existing_domains = {tracker['domain'] for tracker in config.get('trackers', [])}
@@ -236,7 +236,7 @@ async def import_trackers_from_clients(
                         # 提取纯域名（移除端口号）用于Cloudflare检测
                         clean_domain = domain_service.strip_port(domain)
 
-                        logger.info(f"[Cloudflare检测] 正在检测下载器导入的域名: {clean_domain}")
+                        logger.info("[Cloudflare检测] 正在检测下载器导入的域名: %s", clean_domain)
                         # 检测Cloudflare
                         if hosts_manager.is_cloudflare_domain(clean_domain):
                             cf_domains.append(domain)
@@ -251,20 +251,19 @@ async def import_trackers_from_clients(
                                 pending_trackers.append(new_tracker)
                                 existing_domains.add(domain)
                         else:
-                            logger.info(f"[Cloudflare检测] 域名 {clean_domain} 不是Cloudflare域名，已跳过")
+                            logger.debug("[CF] 域名=%s 结果=失败 原因=非Cloudflare域名", clean_domain)
                             non_cf_domains.append(domain)
 
-                # 统一输出检测结果
-                if cf_domains:
-                    logger.info("=== Cloudflare站点检测结果 ===")
-                    logger.info(f"成功检测到 {len(cf_domains)} 个Cloudflare站点:")
-                    for domain in cf_domains:
-                        logger.info(f"- {domain}")
-
-                if non_cf_domains:
-                    logger.info(f"检测到 {len(non_cf_domains)} 个非Cloudflare站点:")
-                    for domain in non_cf_domains:
-                        logger.info(f"- {domain}")
+                # 逐域名结果只进 DEBUG，INFO 只留一条汇总
+                for domain in cf_domains:
+                    logger.debug("[CF] 域名=%s 结果=成功", domain)
+                for domain in non_cf_domains:
+                    logger.debug("[CF] 域名=%s 结果=失败", domain)
+                if cf_domains or non_cf_domains:
+                    logger.info(
+                        "[TASK] 导入Tracker 阶段=检测 导入=%s 过滤=%s",
+                        len(cf_domains), len(non_cf_domains),
+                    )
 
                 # 只有有新的Cloudflare站点时才更新配置文件
                 if pending_trackers:
@@ -276,7 +275,7 @@ async def import_trackers_from_clients(
                         trackers.extend(t for t in pending_trackers if t["domain"] not in known)
 
                     save_config_and_sync(_save)
-                    logger.info("已更新配置文件，添加了新的Tracker")
+                    logger.info("[CLIENT] 已更新配置文件，添加了新的Tracker")
 
                     # 更新结果消息，区分加速和过滤站点
                     cf_only_message = f"成功导入 {len(cf_domains)} 个Cloudflare站点"
@@ -305,7 +304,7 @@ async def import_trackers_from_clients(
             return result
 
         except Exception as e:
-            logger.error(f"从下载器客户端导入Tracker失败: {str(e)}", exc_info=True)
+            logger.error("[CLIENT] 从下载器客户端导入Tracker失败: %s", str(e), exc_info=True)
             return {"status": "error", "message": f"导入过程中发生错误: {str(e)}"}
 
     result = await run_in_threadpool(_do_import)
@@ -315,6 +314,6 @@ async def import_trackers_from_clients(
         background_tasks.add_task(hosts_manager.update_hosts)
 
     ok = result.get("status") == "success"
-    log_op("tracker.import", target=client_id or "all", ok=ok,
-           reason=None if ok else result.get("message"))
+    log_op("导入Tracker", 目标=client_id or "all", ok=ok,
+           原因=None if ok else result.get("message"))
     return result

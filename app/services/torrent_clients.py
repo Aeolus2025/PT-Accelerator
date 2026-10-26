@@ -5,6 +5,17 @@ import traceback
 
 logger = logging.getLogger(__name__)
 
+def _cookie_state(session) -> str:
+    """只说明会话是否建立，不输出 cookie 内容。
+
+    qBittorrent 的 SID 等同于登录凭据，写进日志等于把密码留在磁盘上。
+    """
+    try:
+        return "有" if session.cookies.get("SID") else "无"
+    except Exception:
+        return "未知"
+
+
 class TorrentClientBase:
     """下载器客户端基类"""
     def __init__(self, host: str, port: int, username: str, password: str, use_https: bool = False, api_key: Optional[str] = None):
@@ -16,7 +27,7 @@ class TorrentClientBase:
         self.api_key = (api_key or "").strip()
         self.base_url = f"{'https' if use_https else 'http'}://{host}:{port}"
         self.session = requests.Session()
-        logger.debug(f"初始化下载器客户端: {self.__class__.__name__}, URL: {self.base_url}")
+        logger.debug("[CLIENT] 初始化下载器客户端: %s, URL: %s", self.__class__.__name__, self.base_url)
     
     def test_connection(self) -> Dict[str, Any]:
         """测试连接"""
@@ -31,14 +42,14 @@ class QBittorrentClient(TorrentClientBase):
     """qBittorrent客户端 - 支持 API Key(5.2+) 与 用户名密码/SID 两种认证"""
     def __init__(self, host: str, port: int, username: str, password: str, use_https: bool = False, api_key: Optional[str] = None):
         super().__init__(host, port, username, password, use_https, api_key)
-        logger.info(f"初始化qBittorrent客户端: {host}:{port}, 使用HTTPS: {use_https}")
+        logger.debug("[CLIENT] 初始化qBittorrent客户端: %s:%s, 使用HTTPS: %s", host, port, use_https)
         self.api_url = f"{self.base_url}/api/v2"
-        logger.debug(f"qBittorrent API URL: {self.api_url}")
+        logger.debug("[CLIENT] qBittorrent API URL: %s", self.api_url)
         if self.api_key:
             # 不打印密钥本身，只打印长度
-            logger.info(f"qBittorrent认证方式: API Key(长度 {len(self.api_key)})")
+            logger.debug("[CLIENT] qBittorrent认证方式: API Key(长度 %s)", len(self.api_key))
         else:
-            logger.info(f"qBittorrent认证方式: 用户名/密码, 用户名: {username}, 密码长度: {len(password) if password else 0}")
+            logger.debug("[CLIENT] qBittorrent认证方式: 用户名/密码, 用户名: %s, 密码长度: %s", username, len(password) if password else 0)
     
     def _apply_auth_headers(self) -> None:
         """API Key 模式下为会话注入 Authorization: Bearer 头"""
@@ -50,36 +61,36 @@ class QBittorrentClient(TorrentClientBase):
         if self.api_key:
             # API Key 模式下无需登录，认证头已由 _apply_auth_headers 注入
             self._apply_auth_headers()
-            logger.info("qBittorrent 使用 API Key 认证，跳过 /auth/login")
+            logger.debug("[CLIENT] qBittorrent 使用 API Key 认证，跳过 /auth/login")
             return True
         try:
             login_url = f"{self.api_url}/auth/login"
-            logger.debug(f"尝试登录qBittorrent: {login_url}")
+            logger.debug("[CLIENT] 尝试登录qBittorrent: %s", login_url)
             data = {"username": self.username, "password": self.password}
             response = self.session.post(login_url, data=data, timeout=10)
-            logger.debug(f"登录响应: 状态码={response.status_code}, 内容='{response.text}', cookie={self.session.cookies}")
+            logger.debug("[CLIENT] 登录响应 状态码=%s 内容=%r 会话Cookie=%s", response.status_code, response.text, _cookie_state(self.session))
             sid = self.session.cookies.get('SID')
-            logger.debug(f"登录后SID: {sid}")
+            logger.debug("[CLIENT] 登录后会话=%s", "有" if sid else "无")
             if response.status_code == 200 and response.text.lower().startswith('ok') and sid:
-                logger.info(f"qBittorrent登录成功，SID={sid}")
+                logger.debug("[CLIENT] qBittorrent登录成功 会话=%s", "有" if sid else "无")
                 return True
             elif response.status_code == 403:
                 # 5.2+ 在部分配置下会直接拒绝密码登录，提示改用 API Key
-                logger.error(f"qBittorrent登录被拒绝(403): 该版本(可能 >= 5.2)可能已禁用密码登录，请改用 API 密钥。响应='{response.text}'")
+                logger.error("[CLIENT] qBittorrent登录被拒绝(403): 该版本(可能 >= 5.2)可能已禁用密码登录，请改用 API 密钥。响应='%s'", response.text)
                 return False
             else:
-                logger.error(f"qBittorrent登录失败: 状态码={response.status_code}, 响应='{response.text}', SID={sid}")
+                logger.error("[CLIENT] qBittorrent登录失败 状态码=%s 内容=%r 会话=%s", response.status_code, response.text, "有" if sid else "无")
                 return False
         except Exception as e:
             error_msg = f"qBittorrent登录异常: {type(e).__name__}: {str(e)}"
-            logger.error(error_msg)
+            logger.exception(error_msg)
             logger.debug(traceback.format_exc())
             return False
     
     def test_connection(self) -> Dict[str, Any]:
         """测试qBittorrent连接，登录后强制检查SID并打印cookie"""
         try:
-            logger.info(f"测试qBittorrent连接: {self.host}:{self.port}")
+            logger.debug("[CLIENT] 测试qBittorrent连接: %s:%s", self.host, self.port)
             if not self.login():
                 if self.api_key:
                     return {
@@ -92,18 +103,18 @@ class QBittorrentClient(TorrentClientBase):
                 }
             # API Key 模式下没有 SID cookie，属正常
             sid = self.session.cookies.get('SID')
-            logger.info(f"登录成功，SID={sid if sid else '(API Key 模式，无 SID)'}")
+            logger.debug("[CLIENT] 登录成功 会话=%s", "有" if sid else "无(API Key 模式)")
             version_url = f"{self.api_url}/app/version"
-            logger.debug(f"获取qBittorrent版本信息: {version_url}, 当前cookie: {self.session.cookies}")
+            logger.debug("[CLIENT] 获取qBittorrent版本信息 %s 会话Cookie=%s", version_url, _cookie_state(self.session))
             response = self.session.get(version_url, timeout=10)
-            logger.debug(f"版本信息响应: 状态码={response.status_code}, 内容='{response.text}', cookie={self.session.cookies}")
+            logger.debug("[CLIENT] 版本信息响应 状态码=%s 内容=%r 会话Cookie=%s", response.status_code, response.text, _cookie_state(self.session))
             if response.status_code == 200:
                 version = response.text
-                logger.info(f"qBittorrent版本: {version}")
+                logger.debug("[CLIENT] qBittorrent版本: %s", version)
                 api_version_url = f"{self.api_url}/app/webapiVersion"
                 api_response = self.session.get(api_version_url, timeout=10)
                 api_version = api_response.text if api_response.status_code == 200 else "未知"
-                logger.info(f"qBittorrent API版本: {api_version}")
+                logger.debug("[CLIENT] qBittorrent API版本: %s", api_version)
                 return {
                     "success": True,
                     "message": f"连接成功，qBittorrent版本: {version}, API版本: {api_version}",
@@ -111,7 +122,7 @@ class QBittorrentClient(TorrentClientBase):
                     "api_version": api_version
                 }
             else:
-                logger.error(f"获取qBittorrent版本信息失败: 状态码={response.status_code}, 响应='{response.text}', cookie={self.session.cookies}")
+                logger.error("[CLIENT] 获取qBittorrent版本信息失败 状态码=%s 内容=%r 会话Cookie=%s", response.status_code, response.text, _cookie_state(self.session))
                 if response.status_code == 403 and self.api_key:
                     message = "API 密钥无效或已过期，请在 qBittorrent「选项 → WebUI」中重新生成 API 密钥"
                 elif response.status_code == 403:
@@ -124,21 +135,21 @@ class QBittorrentClient(TorrentClientBase):
                 }
         except requests.exceptions.Timeout:
             error_msg = f"qBittorrent连接超时: {self.host}:{self.port}"
-            logger.error(error_msg)
+            logger.exception(error_msg)
             return {
                 "success": False,
                 "message": error_msg
             }
         except requests.exceptions.ConnectionError as e:
             error_msg = f"qBittorrent连接错误: {str(e)}"
-            logger.error(error_msg)
+            logger.exception(error_msg)
             return {
                 "success": False,
                 "message": error_msg
             }
         except Exception as e:
             error_msg = f"测试qBittorrent连接异常: {type(e).__name__}: {str(e)}"
-            logger.error(error_msg)
+            logger.exception(error_msg)
             logger.debug(traceback.format_exc())
             return {
                 "success": False,
@@ -149,19 +160,19 @@ class QBittorrentClient(TorrentClientBase):
         """获取所有种子的Tracker列表，登录后强制检查SID并打印cookie"""
         try:
             if not self.login():
-                logger.error("获取Tracker失败: 登录失败")
+                logger.error("[CLIENT] 获取Tracker失败: 登录失败")
                 return []
             # API Key 模式下没有 SID cookie，属正常
             sid = self.session.cookies.get('SID')
-            logger.info(f"获取Tracker时 SID={sid if sid else '(API Key 模式，无 SID)'}")
+            logger.debug("[CLIENT] 获取Tracker 会话=%s", "有" if sid else "无(API Key 模式)")
             torrents_url = f"{self.api_url}/torrents/info"
             response = self.session.get(torrents_url, timeout=15)
-            logger.debug(f"获取种子列表响应: 状态码={response.status_code}, cookie={self.session.cookies}")
+            logger.debug("[CLIENT] 获取种子列表响应 状态码=%s 会话Cookie=%s", response.status_code, _cookie_state(self.session))
             if response.status_code != 200:
-                logger.error(f"获取种子列表失败: 状态码={response.status_code}, 响应='{response.text}', cookie={self.session.cookies}")
+                logger.error("[CLIENT] 获取种子列表失败 状态码=%s 内容=%r 会话Cookie=%s", response.status_code, response.text, _cookie_state(self.session))
                 return []
             torrents = response.json()
-            logger.info(f"获取到 {len(torrents)} 个种子")
+            logger.debug("[CLIENT] 获取到 %s 个种子", len(torrents))
             tracker_urls = set()
             for torrent in torrents:
                 torrent_hash = torrent.get('hash')
@@ -170,9 +181,9 @@ class QBittorrentClient(TorrentClientBase):
                 trackers_url = f"{self.api_url}/torrents/trackers"
                 params = {"hash": torrent_hash}
                 trackers_response = self.session.get(trackers_url, params=params, timeout=15)
-                logger.debug(f"获取种子{torrent_hash}的Tracker响应: 状态码={trackers_response.status_code}, cookie={self.session.cookies}")
+                logger.debug("[CLIENT] 获取种子%s的Tracker响应 状态码=%s 会话Cookie=%s", torrent_hash, trackers_response.status_code, _cookie_state(self.session))
                 if trackers_response.status_code != 200:
-                    logger.warning(f"获取种子 {torrent_hash} 的Tracker失败: 状态码={trackers_response.status_code}, cookie={self.session.cookies}")
+                    logger.warning("[CLIENT] 获取种子 %s 的Tracker失败 状态码=%s 会话Cookie=%s", torrent_hash, trackers_response.status_code, _cookie_state(self.session))
                     continue
                 trackers = trackers_response.json()
                 for tracker in trackers:
@@ -184,13 +195,13 @@ class QBittorrentClient(TorrentClientBase):
                             domain = parsed_url.netloc
                             if domain:
                                 tracker_urls.add(domain)
-                                logger.debug(f"提取Tracker域名: {domain}")
+                                logger.debug("[CLIENT] 提取Tracker域名: %s", domain)
                         except Exception as e:
-                            logger.error(f"解析Tracker URL失败: {str(e)}")
-            logger.info(f"总共提取了 {len(tracker_urls)} 个唯一Tracker域名")
+                            logger.exception("[CLIENT] 解析Tracker URL失败: %s", str(e))
+            logger.debug("[CLIENT] 总共提取了 %s 个唯一Tracker域名", len(tracker_urls))
             return list(tracker_urls)
         except Exception as e:
-            logger.error(f"获取qBittorrent Tracker列表异常: {type(e).__name__}: {str(e)}")
+            logger.exception("[CLIENT] 获取qBittorrent Tracker列表异常: %s: %s", type(e).__name__, str(e))
             logger.debug(traceback.format_exc())
             return []
 
@@ -211,13 +222,13 @@ class TransmissionClient(TorrentClientBase):
                 # 从响应头中获取X-Transmission-Session-Id
                 self.session_id = response.headers.get('X-Transmission-Session-Id')
                 if self.session_id:
-                    logger.info("获取Transmission会话ID成功")
+                    logger.debug("[CLIENT] 获取Transmission会话ID成功")
                     return True
             
-            logger.error(f"获取Transmission会话ID失败: {response.status_code}")
+            logger.error("[CLIENT] 获取Transmission会话ID失败: %s", response.status_code)
             return False
         except Exception as e:
-            logger.error(f"获取Transmission会话ID异常: {str(e)}")
+            logger.exception("[CLIENT] 获取Transmission会话ID异常: %s", str(e))
             return False
     
     def _make_request(self, method: str, arguments: Optional[Dict] = None) -> Dict:
@@ -285,14 +296,14 @@ class TransmissionClient(TorrentClientBase):
         """获取所有种子的Tracker列表"""
         try:
             if not self._get_session_id():
-                logger.error("获取Tracker失败: 无法获取会话ID")
+                logger.error("[CLIENT] 获取Tracker失败: 无法获取会话ID")
                 return []
             
             # 获取所有种子信息，包括Tracker
             response = self._make_request("torrent-get", {"fields": ["id", "trackers"]})
             
             if response.get("result") != "success":
-                logger.error(f"获取种子列表失败: {response.get('message', '未知错误')}")
+                logger.error("[CLIENT] 获取种子列表失败: %s", response.get('message', '未知错误'))
                 return []
             
             torrents = response.get("arguments", {}).get("torrents", [])
@@ -311,11 +322,11 @@ class TransmissionClient(TorrentClientBase):
                             if domain:
                                 tracker_urls.add(domain)
                         except Exception as e:
-                            logger.error(f"解析Tracker URL失败: {str(e)}")
+                            logger.exception("[CLIENT] 解析Tracker URL失败: %s", str(e))
             
             return list(tracker_urls)
         except Exception as e:
-            logger.error(f"获取Tracker列表异常: {str(e)}")
+            logger.exception("[CLIENT] 获取Tracker列表异常: %s", str(e))
             return []
 
 
@@ -336,7 +347,7 @@ class TorrentClientManager:
         
         # 兼容旧配置格式，如果是字典则转换为数组
         if isinstance(clients_config, dict):
-            logger.info("检测到旧版本配置格式，正在转换为新格式...")
+            logger.debug("[CLIENT] 检测到旧版本配置格式，正在转换为新格式")
             converted_clients = []
             
             # 转换 qbittorrent 配置
@@ -362,7 +373,7 @@ class TorrentClientManager:
             clients_config = converted_clients
             # 更新配置
             self.config["torrent_clients"] = clients_config
-            logger.info(f"配置转换完成，共转换 {len(converted_clients)} 个客户端")
+            logger.debug("[CLIENT] 配置转换完成，共转换 %s 个客户端", len(converted_clients))
         
         # 初始化所有客户端（包括禁用的，以便于测试连接）
         for client_config in clients_config:
@@ -371,7 +382,7 @@ class TorrentClientManager:
             client_type = client_config.get("type")
             
             if not client_id or not client_type:
-                logger.warning(f"跳过无效的客户端配置: {client_config}")
+                logger.warning("[CLIENT] 跳过无效的客户端配置: %s", client_config)
                 continue
             
             try:
@@ -394,17 +405,17 @@ class TorrentClientManager:
                         path=client_config.get("path", "/transmission/rpc")
                     )
                 else:
-                    logger.warning(f"不支持的客户端类型: {client_type}")
+                    logger.warning("[CLIENT] 不支持的客户端类型: %s", client_type)
                     continue
                 
                 self.clients[client_id] = {
                     "client": client,
                     "config": client_config
                 }
-                logger.info(f"初始化客户端成功: {client_config.get('name', client_id)} ({client_type})")
+                logger.debug("[CLIENT] 初始化客户端成功: %s (%s)", client_config.get('name', client_id), client_type)
                 
             except Exception as e:
-                logger.error(f"初始化客户端失败: {client_config.get('name', client_id)} - {str(e)}")
+                logger.exception("[CLIENT] 初始化客户端失败: %s - %s", client_config.get('name', client_id), str(e))
     
     def update_config(self, config: Dict[str, Any]):
         """更新配置并重新初始化客户端"""
@@ -413,24 +424,24 @@ class TorrentClientManager:
     
     def test_client_connection(self, client_id: str) -> Dict[str, Any]:
         """测试指定客户端连接"""
-        logger.info(f"正在测试客户端连接: {client_id}")
-        logger.debug(f"当前已初始化的客户端列表: {list(self.clients.keys())}")
+        logger.debug("[CLIENT] 正在测试客户端连接: %s", client_id)
+        logger.debug("[CLIENT] 当前已初始化的客户端列表: %s", list(self.clients.keys()))
         
         client_info = self.clients.get(client_id)
         if not client_info:
-            logger.error(f"未找到客户端: {client_id}, 可用客户端: {list(self.clients.keys())}")
+            logger.error("[CLIENT] 未找到客户端: %s, 可用客户端: %s", client_id, list(self.clients.keys()))
             return {
                 "success": False,
                 "message": f"未找到客户端: {client_id}, 可能尚未保存或未启用"
             }
         
         try:
-            logger.info(f"开始测试客户端 {client_id} 的连接")
+            logger.debug("[CLIENT] 开始测试客户端 %s 的连接", client_id)
             result = client_info["client"].test_connection()
-            logger.info(f"客户端 {client_id} 测试结果: {result}")
+            logger.info("[CLIENT] 客户端 %s 测试结果: %s", client_id, result)
             return result
         except Exception as e:
-            logger.error(f"测试客户端连接失败: {client_id} - {str(e)}")
+            logger.exception("[CLIENT] 测试客户端连接失败: %s - %s", client_id, str(e))
             return {
                 "success": False,
                 "message": f"测试连接失败: {str(e)}"
@@ -470,7 +481,7 @@ class TorrentClientManager:
             result = client.test_connection()
             return result
         except Exception as e:
-            logger.error(f"测试客户端连接失败: {str(e)}")
+            logger.exception("[CLIENT] 测试客户端连接失败: %s", str(e))
             return {"success": False, "message": f"测试连接失败: {str(e)}"}
     
     def get_all_trackers(self) -> List[str]:
@@ -485,10 +496,10 @@ class TorrentClientManager:
             try:
                 client_name = client_info["config"].get("name", client_id)
                 trackers = client_info["client"].get_trackers()
-                logger.info(f"从 {client_name} 获取到 {len(trackers)} 个Tracker")
+                logger.info("[CLIENT] 从 %s 获取到 %s 个Tracker", client_name, len(trackers))
                 all_trackers.update(trackers)
             except Exception as e:
-                logger.error(f"从客户端 {client_id} 获取Tracker失败: {str(e)}")
+                logger.exception("[CLIENT] 从客户端 %s 获取Tracker失败: %s", client_id, str(e))
         
         return list(all_trackers)
     
@@ -521,7 +532,7 @@ class TorrentClientManager:
                     "success": True
                 }
                 all_domains.update(trackers)
-                logger.info(f"从 {client_name} ({client_type}) 获取到 {len(trackers)} 个Tracker域名")
+                logger.info("[CLIENT] 从 %s (%s) 获取到 %s 个Tracker域名", client_name, client_type, len(trackers))
             except Exception as e:
                 client_results[cid] = {
                     "name": client_name,
@@ -531,7 +542,7 @@ class TorrentClientManager:
                     "success": False,
                     "error": str(e)
                 }
-                logger.error(f"从 {client_name} ({client_type}) 获取Tracker失败: {str(e)}")
+                logger.exception("[CLIENT] 从 %s (%s) 获取Tracker失败: %s", client_name, client_type, str(e))
         
         total_count = len(all_domains)
         if client_id is not None and client_id not in client_results:

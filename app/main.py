@@ -24,7 +24,8 @@ from app.core import config_store
 from app.core.constants import CONFIG_PATH, DEFAULT_CLOUDFLARE_IP
 from app.core.defaults import DEFAULT_CONFIG
 from app.core.locking import config_write_lock
-from app.core.logging_setup import setup_logging
+from app.core.logging_setup import setup_logging, resolve_level
+from app.api.middleware import RequestContextMiddleware
 from version import get_version
 
 # config 目录要在读配置前就存在；logs 由 setup_logging 负责
@@ -40,9 +41,9 @@ def create_nowip_file():
         try:
             with open("nowip_hosts.txt", "w") as f:
                 f.write(DEFAULT_CLOUDFLARE_IP)
-            logger.info(f"成功创建nowip_hosts.txt文件，内容为: {DEFAULT_CLOUDFLARE_IP}")
+            logger.info("[BOOT] 成功创建nowip_hosts.txt文件，内容为: %s", DEFAULT_CLOUDFLARE_IP)
         except Exception as e:
-            logger.error(f"创建nowip_hosts.txt文件失败: {str(e)}")
+            logger.exception("[BOOT] 创建nowip_hosts.txt文件失败: %s", str(e))
 
     # 同时在当前架构对应的 cfst 目录下创建一份（arm64 机器上没有 cfst_linux_amd64 目录，
     # 原先硬编码会静默跳过，导致 ARM 设备首次运行缺少该文件）
@@ -51,9 +52,9 @@ def create_nowip_file():
         try:
             with open(os.path.join(arch_dir, "nowip_hosts.txt"), "w") as f:
                 f.write(DEFAULT_CLOUDFLARE_IP)
-            logger.info(f"成功在{arch_dir}目录下创建nowip_hosts.txt文件")
+            logger.info("[BOOT] 成功在%s目录下创建nowip_hosts.txt文件", arch_dir)
         except Exception as e:
-            logger.error(f"在{arch_dir}目录下创建nowip_hosts.txt文件失败: {str(e)}")
+            logger.exception("[BOOT] 在%s目录下创建nowip_hosts.txt文件失败: %s", arch_dir, str(e))
 
 # 加载或创建配置文件
 def load_config():
@@ -89,7 +90,7 @@ def load_config():
         
         if "cloudflare" in current_config:
             if "ipv4" in current_config["cloudflare"]:
-                logger.info("从配置中移除废弃的ipv4字段")
+                logger.info("[BOOT] 从配置中移除废弃的ipv4字段")
                 del current_config["cloudflare"]["ipv4"]
                 need_save_after_load = True
         
@@ -105,14 +106,14 @@ def load_config():
         fallback_secret = secrets.token_hex(32)
         current_config["auth"]["secret_key"] = fallback_secret # 更新到当前配置中，以便后续保存
         init_session_serializer(fallback_secret)
-        logger.warning("配置文件中未找到 secret_key，已生成临时的 secret_key。请检查配置文件。")
+        logger.warning("[BOOT] 配置文件中未找到 secret_key，已生成临时的 secret_key。请检查配置文件。")
         # 尝试保存回文件
         try:
             with config_write_lock():
                 config_store.write(CONFIG_PATH, current_config)
-            logger.info("已将生成的临时 secret_key 保存回配置文件。")
+            logger.info("[BOOT] 已将生成的临时 secret_key 保存回配置文件。")
         except Exception as e:
-            logger.error(f"保存临时 secret_key 到配置文件失败: {e}")
+            logger.exception("[BOOT] 保存临时 secret_key 到配置文件失败: %s", e)
             
     return current_config
 
@@ -131,7 +132,7 @@ async def lifespan(_app: FastAPI):
     startup()
     yield
     scheduler_service.stop()
-    logger.info("应用已关闭，调度器已停止")
+    logger.info("[BOOT] 应用已关闭，调度器已停止")
 
 
 app = FastAPI(title="PT-Accelerator", lifespan=lifespan)
@@ -142,8 +143,12 @@ if _startup_config.get("auth", {}).get("secret_key"):
     app.add_middleware(SessionMiddleware, secret_key=_startup_config["auth"]["secret_key"])
 else:
     # 如果到这里 secret_key 仍然没有，这是个严重问题，但为了应用能启动，用一个固定值（不推荐生产环境）
-    logger.error("CRITICAL: Secret key for session middleware is not set. Using a temporary insecure key.")
+    logger.error("[BOOT] session secret_key 缺失，使用临时密钥，生产环境必须修复 ok=false")
     app.add_middleware(SessionMiddleware, secret_key="temporary_insecure_secret_key_please_change")
+
+# 放在 SessionMiddleware 之后：后添加的在外层，这样请求进入时先有 rid，
+# 会话校验失败的请求也能带上 rid 记进日志
+app.add_middleware(RequestContextMiddleware)
 
 # 挂载静态文件
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
@@ -283,10 +288,25 @@ async def home(request: Request, current_user: Optional[User] = Depends(get_curr
     )
 
 # 运行时更新配置
+def _log_boot_summary():
+    """启动摘要：把排障最常用的几个事实一次性打出来。"""
+    cfg = load_config() or {}
+    auth = cfg.get("auth", {}) or {}
+    logger.info(
+        "[BOOT] 版本=%s 端口=%s 认证=%s Tracker数=%s 源数=%s 日志级别=%s",
+        get_version(),
+        os.environ.get("APP_PORT", "23333"),
+        bool(auth.get("enable")),
+        len(cfg.get("trackers", []) or []),
+        len(cfg.get("hosts_sources", []) or []),
+        logging.getLevelName(resolve_level()),
+    )
+
+
 def startup():
     # 启动调度器
     scheduler_service.start()
-    logger.info("应用已启动，调度器已开始运行")
+    _log_boot_summary()
 
     # 生成 secret_key / 初始密码这类「读-判断-写」操作必须跨进程互斥。
     # 单 worker 时不会有问题，但 `uvicorn --workers N` 下每个 worker 都会跑一次
@@ -302,7 +322,7 @@ def startup():
             auth_config["secret_key"] = secrets.token_hex(32)
             current_config["auth"] = auth_config
             config_updated = True
-            logger.info("已生成新的认证密钥")
+            logger.info("[BOOT] 已生成新的认证密钥")
 
         # 检查管理员密码是否设置 - 改进逻辑
         if auth_config.get("enable") and (not auth_config.get("password_hash") or auth_config.get("password_hash") == ""):
@@ -317,9 +337,9 @@ def startup():
         if config_updated:
             try:
                 config_store.write(CONFIG_PATH, current_config)
-                logger.info("认证配置已更新并保存")
+                logger.info("[BOOT] 认证配置已更新并保存")
             except Exception as e:
-                logger.error(f"保存认证配置失败: {e}")
+                logger.exception("[BOOT] 保存认证配置失败: %s", e)
 
 
 if __name__ == "__main__":

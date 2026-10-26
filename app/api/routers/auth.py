@@ -64,12 +64,12 @@ async def _update_auth_config_locked(
     if enable_auth is not None and enable_auth != auth_settings.get("enable"):
         auth_settings["enable"] = enable_auth
         config_changed = True
-        logger.info(f"登录认证已 {'启用' if enable_auth else '禁用'}")
+        logger.info("[AUTH] 登录认证已 %s", '启用' if enable_auth else '禁用')
 
     if username and username != auth_settings.get("username"):
         auth_settings["username"] = username
         config_changed = True
-        logger.info(f"登录用户名已修改为: {username}")
+        logger.info("[AUTH] 登录用户名已修改为: %s", username)
 
     if new_password:
         # 验证新密码长度
@@ -86,7 +86,7 @@ async def _update_auth_config_locked(
                 # 首次设置密码或认证被禁用时可以不需要当前密码
                 auth_settings["password_hash"] = get_password_hash(new_password)
                 config_changed = True
-                logger.info("登录密码已设置/更新。")
+                logger.info("[AUTH] 登录密码已设置/更新。")
             else:
                 raise HTTPException(status_code=400, detail="修改密码需要提供当前密码。如果您忘记了当前密码，请联系管理员。")
         else:
@@ -99,7 +99,7 @@ async def _update_auth_config_locked(
                 # 当前密码正确，更新为新密码
                 auth_settings["password_hash"] = get_password_hash(new_password)
                 config_changed = True
-                logger.info("登录密码已修改") 
+                logger.info("[AUTH] 登录密码已修改") 
                 # 密码修改成功，使当前会话失效，强制重新登录
                 request.session.pop("user", None) 
 
@@ -119,9 +119,9 @@ async def _update_auth_config_locked(
             # 重新加载全局配置，确保认证配置变更立即生效
             from app.auth import reload_global_config
             if reload_global_config():
-                logger.info("全局配置已重新加载，认证配置变更立即生效")
+                logger.info("[AUTH] 全局配置已重新加载，认证配置变更立即生效")
             else:
-                logger.warning("全局配置重新加载失败，部分功能可能需要重启才能生效")
+                logger.warning("[AUTH] 全局配置重新加载失败，部分功能可能需要重启才能生效")
             
             # 重要：如果认证相关配置发生变化，清除当前session，强制重新登录
             # 这确保新的认证配置能够立即生效
@@ -138,15 +138,15 @@ async def _update_auth_config_locked(
             else:
                 message += " 为确保配置立即生效，您已自动登出，请重新登录。"
             
-            log_op("auth.update", target=auth_settings.get("username"),
+            log_op("更新认证", 目标=auth_settings.get("username"),
                    enabled=auth_settings.get("enable"),
                    password_changed=bool(new_password))
             return {"message": message}
         except Exception as e:
-            logger.error(f"更新认证配置失败: {str(e)}")
-            log_op("auth.update", ok=False, error=str(e))
+            logger.exception("[AUTH] 更新认证配置失败: %s", str(e))
+            log_op("更新认证", ok=False, 错误=str(e))
             raise HTTPException(status_code=500, detail=f"更新认证配置失败: {str(e)}")
 
-    log_op("auth.update", target=auth_settings.get("username"), changed=False)
+    log_op("更新认证", 目标=auth_settings.get("username"), 变更项=False)
     return {"message": "未检测到配置更改"}
 

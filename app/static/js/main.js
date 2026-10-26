@@ -5,6 +5,9 @@
     'use strict';
 
     document.addEventListener('DOMContentLoaded', function () {
+        // 先恢复上次停留的标签页，各页面模块才能收到它触发的 shown 事件
+        global.tabs.init();
+
         // 各页面模块初始化（内部完成首屏加载与事件委托绑定）
         global.dashboardPage.init();
         global.trackersPage.init();

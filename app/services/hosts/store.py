@@ -40,7 +40,7 @@ class HostsStore:
             with open(hosts_path, 'r') as f:
                 return f.readlines()
         except Exception as e:
-            logger.error(f"读取hosts文件失败: {str(e)}")
+            logger.exception("[HOSTS] 读取hosts文件失败: %s", str(e))
             return []
 
     def get_hosts_path(self) -> str:
@@ -106,7 +106,7 @@ class HostsStore:
         if not merged_entries:
             return []
         if not merged_enabled:
-            logger.info(f"[MergedHosts] 无启用源，丢弃 {len(merged_entries)} 条合并条目")
+            logger.debug("[MergedHosts] 无启用源，丢弃 条目=%s", len(merged_entries))
             return []
         return [(
             self.source_start_mark % "MergedHosts",
@@ -123,7 +123,7 @@ class HostsStore:
         # 剥离所有历史残留分区（含残缺/顺序异常的情况）
         kept, removed = self._strip_project_sections(lines)
         if removed:
-            logger.info(f"更新前已清理 {removed} 个历史PT-Accelerator分区")
+            logger.debug("[HOSTS] 更新前已清理历史分区 数量=%s", removed)
         # 添加新的条目，保持分段格式
         new_content = "".join(kept).rstrip() + "\n\n" + self.start_mark + "\n"
         for start_mark, entries, end_mark in sections:
@@ -144,11 +144,11 @@ class HostsStore:
             kept, removed = self._strip_project_sections(lines)
             if removed:
                 self._write_hosts_atomic("".join(kept).rstrip() + "\n")
-                logger.info(f"已清理 {removed} 个PT-Accelerator分区，保留系统原有hosts内容")
+                logger.info("[HOSTS] 清空 移除数=%s 系统内容=保留", removed)
             else:
-                logger.info("未发现需要清理的PT-Accelerator分区")
+                logger.info("[HOSTS] 清空 移除数=0")
         except Exception as e:
-            logger.error(f"清理PT-Accelerator分区失败: {str(e)}")
+            logger.exception("[HOSTS] 清理PT-Accelerator分区失败: %s", str(e))
 
     def save_user_content(self, content: str) -> int:
         """保存用户编辑的 hosts 内容，本项目的分区会被重新生成而不是照搬。
@@ -160,7 +160,7 @@ class HostsStore:
         kept, removed = self._strip_project_sections(lines)
         self._write_hosts_atomic("".join(kept))
         if removed:
-            logger.info(f"保存时剔除了 {removed} 个用户提交内容中的项目分区，将由重新生成覆盖")
+            logger.info("[HOSTS] save 移除分区=%s", removed)
         else:
-            logger.info("已保存用户编辑的 hosts 内容")
+            logger.info("[HOSTS] save 结果=成功")
         return removed

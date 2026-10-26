@@ -77,16 +77,16 @@ class HostsSourceFetcher:
                         with open(cache_path, 'w', encoding='utf-8') as f:
                             f.write(response.text)
                     except Exception as e:
-                        logger.warning(f"写入缓存失败: {cache_path}, 错误: {e}")
+                        logger.exception("[HOSTS] 写入缓存失败: %s, 错误: %s", cache_path, e)
                     return entries
                 else:
                     last_exception = Exception(f"HTTP状态码: {response.status_code}")
             except Exception as e:
                 last_exception = e
-                logger.warning(f"拉取hosts源失败({attempt+1}/{max_retries+1}): {url}, 错误: {e}")
+                logger.exception("[HOSTS] 拉取hosts源失败(%s/%s): %s, 错误: %s", attempt+1, max_retries+1, url, e)
         # 全部重试失败，尝试本地缓存兜底
         if os.path.exists(cache_path):
-            logger.warning(f"所有重试失败，使用本地缓存兜底: {cache_path}")
+            logger.warning("[HOSTS] 所有重试失败，使用本地缓存兜底: %s", cache_path)
             try:
                 with open(cache_path, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
@@ -104,8 +104,8 @@ class HostsSourceFetcher:
                     entries.append((ip, domain))
                 return entries
             except Exception as e:
-                logger.error(f"读取本地缓存失败: {cache_path}, 错误: {e}")
-        logger.error(f"处理hosts源出错: {url}, 错误: {last_exception}")
+                logger.exception("[HOSTS] 读取本地缓存失败: %s, 错误: %s", cache_path, e)
+        logger.error("[HOSTS] 处理hosts源出错: %s, 错误: %s", url, last_exception)
         return []
 
     def _ping_ip(self, ip: str, timeout: int = 1, cache: Dict[str, float] = None, domain: str = None, on_result=None) -> float:

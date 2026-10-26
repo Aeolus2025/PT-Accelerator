@@ -8,6 +8,7 @@ from app.core import config_store
 from app.utils import notify as notify_module
 from app.utils import notify_channel
 from app.utils import notify_template
+from app.utils.oplog import Timer
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,20 @@ def send_task_notify(title: str, content: str):
                     valid.append(flat)
                     break
         # 为每个有效渠道单独发送通知，使用 ignore_default_config=True 避免配置污染
+        sent = 0
+        failed = []
+        timer = Timer()
+        # send 内部为每个渠道各开线程，异常在网络层被吞掉，这里只能统计"已尝试"的渠道数
         for flat in valid:
-            notify_module.send(pretty_title, pretty_content, ignore_default_config=True, **flat)
-    except Exception as e:
-        logger.error(f"发送任务结果通知失败: {e}", exc_info=True)
+            try:
+                notify_module.send(pretty_title, pretty_content, ignore_default_config=True, **flat)
+                sent += 1
+            except Exception:
+                failed.append(flat.get("name") or flat.get("type") or "unknown")
+                logger.exception("[NOTIFY] channel_send ok=false")
+        logger.info(
+            "[NOTIFY] task_send 渠道数=%s 已发送=%s 失败数=%s 失败渠道=%s 耗时=%s",
+            len(valid), sent, len(failed), ",".join(failed) or "-", int(timer),
+        )
+    except Exception:
+        logger.exception("[NOTIFY] task_send ok=false")

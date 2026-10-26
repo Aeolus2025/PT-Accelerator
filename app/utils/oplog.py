@@ -1,46 +1,20 @@
 """操作日志。
 
-每个用户操作记一条，格式固定为 `[OP] action target=... ok=... 键=值`，
-既方便人读，也方便按 action 检索。
+每个用户操作记一条，格式为 `[OP] 动作 结果=成功 字段=值 ...`。
+动作名与字段名由调用点直接写中文，本模块不做翻译。
+
+只记录操作本身与结果，不接收密码、密钥、令牌这类凭据——
+调用点本来就不该传，也不给它们留兜底逻辑。
 """
 
 import logging
+import time
 from typing import Any, Optional
 
 logger = logging.getLogger("app.op")
 
-# 完全不记录
-_FORBIDDEN = {
-    "password",
-    "new_password",
-    "current_password",
-    "confirm_password",
-    "csrf_token",
-    "session",
-    "cookie",
-}
-
-# 只记首尾各 2 位
-_MASKED = {
-    "password_hash",
-    "secret_key",
-    "api_key",
-    "apikey",
-    "token",
-    "passkey",
-    "secret",
-}
-
-# 只记 origin，路径里常带凭据
-_URL_KEYS = {"url", "webhook_url", "announce", "announce_url", "endpoint"}
-
-
-def mask(value: Any) -> str:
-    """遮蔽敏感值，保留首尾便于比对。"""
-    text = str(value or "")
-    if len(text) <= 4:
-        return "****"
-    return f"{text[:2]}****{text[-2:]}"
+# 只记 origin：URL 的路径与查询串里常带凭据
+_URL_KEYS = {"地址", "回调地址", "上报地址"}
 
 
 def _url_origin(value: Any) -> str:
@@ -52,25 +26,39 @@ def _url_origin(value: Any) -> str:
     return parts[0] + "://" + parts[1].split("/", 1)[0]
 
 
-def _format(fields: dict) -> str:
-    parts = []
-    for key, value in fields.items():
-        lowered = key.lower()
-        if lowered in _FORBIDDEN:
-            continue
-        if lowered in _MASKED:
-            parts.append(f"{key}={mask(value)}")
-        elif lowered in _URL_KEYS:
-            parts.append(f"{key}={_url_origin(value)}")
-        else:
-            parts.append(f"{key}={value}")
-    return " ".join(parts)
+class Timer:
+    """给耗时操作计时，渲染成 `耗时=37ms`。
+
+    需在调用 log_op 之前转成 int 或 str，否则拿到的是对象本身。
+    """
+
+    __slots__ = ("_start",)
+
+    def __init__(self) -> None:
+        self._start = time.perf_counter()
+
+    def __int__(self) -> int:
+        return int((time.perf_counter() - self._start) * 1000)
+
+    def __str__(self) -> str:
+        return str(int(self))
+
+
+def _render(key: str, value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if key in _URL_KEYS:
+        return f"{key}={_url_origin(value)}"
+    if isinstance(value, Timer):
+        return f"{key}={int(value)}ms"
+    if isinstance(value, bool):
+        return f"{key}={'是' if value else '否'}"
+    return f"{key}={value}"
 
 
 def log_op(
     action: str,
     *,
-    target: Optional[str] = None,
     ok: bool = True,
     level: Optional[int] = None,
     **fields: Any,
@@ -78,14 +66,13 @@ def log_op(
     """记录一条操作日志。
 
     成功记 INFO，失败记 ERROR；业务性拒绝由调用方传 level=logging.WARNING。
+    值为 None 的字段不渲染，调用点可以直接写 `原因=None if ok else ...`。
     """
     if level is None:
         level = logging.INFO if ok else logging.ERROR
-    head = f"[OP] {action}"
-    if target is not None:
-        head += f" target={target}"
-    head += f" ok={str(bool(ok)).lower()}"
-    extra = _format(fields)
-    if extra:
-        head += " " + extra
-    logger.log(level, head)
+    parts = [f"[OP] {action}", f"结果={'成功' if ok else '失败'}"]
+    for key, value in fields.items():
+        rendered = _render(key, value)
+        if rendered:
+            parts.append(rendered)
+    logger.log(level, " ".join(parts))

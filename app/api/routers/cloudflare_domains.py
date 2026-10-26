@@ -40,7 +40,7 @@ async def add_cloudflare_domain(background_tasks: BackgroundTasks, domain: str =
     hosts_manager.reload_whitelist()
     # 白名单变更后异步更新 hosts
     background_tasks.add_task(hosts_manager.update_hosts)
-    log_op("whitelist.add", target=domain, total=len(domains))
+    log_op("添加白名单", 目标=domain, 合计=len(domains))
     return {"message": f"已添加 {domain} 到Cloudflare白名单", "cloudflare_domains": list(domains)}
 
 
@@ -57,7 +57,7 @@ async def delete_cloudflare_domain(background_tasks: BackgroundTasks, domain: st
     hosts_manager.reload_whitelist()
     # 白名单变更后异步更新 hosts
     background_tasks.add_task(hosts_manager.update_hosts)
-    log_op("whitelist.remove", target=domain, total=len(domains))
+    log_op("移除白名单", 目标=domain, 合计=len(domains))
     return {"message": f"已从Cloudflare白名单移除 {domain}", "cloudflare_domains": list(domains)}
 
 

@@ -17,7 +17,6 @@ class CloudflareSpeedTestService:
         
         # 工作目录
         self.base_dir = os.getcwd()
-        logger.info(f"当前工作目录: {self.base_dir}")
         
         # 查找CloudflareSpeedTest可执行文件
         self.cft_path = self._find_cloudflare_st()
@@ -31,12 +30,9 @@ class CloudflareSpeedTestService:
         # 记录当前状态
         self.running = False
         
-        # 输出初始化信息
-        logger.info(f"CloudflareSpeedTest可执行文件: {self.cft_path}")
-        logger.info(f"CloudflareSpeedTest目录: {self.bin_dir}")
-        logger.info(f"IP文件路径: {self.ip_file}")
-        logger.info(f"IPv6文件路径: {self.ipv6_file}")
-        logger.info(f"结果文件路径: {self.result_file}")
+        logger.info("[CFST] 初始化成功！")
+        logger.debug("[CFST] 路径 基础目录=%s IP=%s IPv6=%s 结果=%s",
+                     self.base_dir, self.ip_file, self.ipv6_file, self.result_file)
         
         # 确保IP文件存在
         self._ensure_ip_files()
@@ -45,7 +41,7 @@ class CloudflareSpeedTestService:
         """查找CloudflareSpeedTest可执行文件，支持架构自适应"""
         arch_dir = self._get_arch_dir()
         machine = platform.machine().lower()
-        logger.info(f"检测到架构: {machine}, 使用目录: {arch_dir}")
+        logger.debug("[CFST] 检测到架构: %s, 使用目录: %s", machine, arch_dir)
 
         # 可能的路径，按架构自适应（按优先级排列，一旦命中即停止查找）
         possible_paths = [
@@ -66,20 +62,20 @@ class CloudflareSpeedTestService:
             if not os.path.exists(path):
                 continue
             if os.access(path, os.X_OK):
-                logger.info(f"使用CloudflareSpeedTest: {path}")
+                logger.debug("[CFST] 使用CloudflareSpeedTest: %s", path)
                 return path
             # 文件存在但缺少可执行权限（常见于从压缩包/Windows 解压到仓库），当场修复后使用
-            logger.warning(f"cfst 文件存在但缺少可执行权限，正在修复: {path}")
+            logger.warning("[CFST] cfst 文件存在但缺少可执行权限，正在修复: %s", path)
             try:
                 os.chmod(path, 0o755)
-                logger.info(f"已修复可执行权限: {path}")
+                logger.info("[CFST] 已修复可执行权限 路径=%s", path)
                 return path
             except OSError as e:
-                logger.error(f"修复可执行权限失败: {path} -> {e}")
+                logger.exception("[CFST] 修复可执行权限失败: %s -> %s", path, e)
 
         # 一个都不存在：给出默认路径让后续调用报明确错误
         default_path = f"./{arch_dir}/cfst"
-        logger.error(f"未找到CloudflareSpeedTest可执行文件，将尝试默认路径 {default_path}")
+        logger.error("[CFST] 未找到CloudflareSpeedTest可执行文件，将尝试默认路径 %s", default_path)
         return default_path
         
     def update_config(self, config: Dict[str, Any]):
@@ -96,29 +92,29 @@ class CloudflareSpeedTestService:
     
     def _ensure_ip_files(self):
         """确保IP文件存在"""
-        logger.info(f"确保IP文件存在: {self.ip_file}")
+        logger.debug("[CFST] 确保IP文件存在: %s", self.ip_file)
         
         # 检查当前目录下是否已存在ip.txt
         if os.path.exists(self.ip_file):
-            logger.info(f"IP文件已存在: {self.ip_file}")
+            logger.debug("[CFST] IP文件已存在: %s", self.ip_file)
             self._verify_ip_file(self.ip_file)
             return
         
         # 未找到ip.txt，尝试在可执行文件同目录下查找
         bin_dir_ip_file = os.path.join(self.bin_dir, "ip.txt")
         if os.path.exists(bin_dir_ip_file):
-            logger.info(f"在可执行文件目录下找到IP文件: {bin_dir_ip_file}")
+            logger.debug("[CFST] 在可执行文件目录下找到IP文件: %s", bin_dir_ip_file)
             try:
                 # 复制到当前目录
                 shutil.copy(bin_dir_ip_file, self.ip_file)
-                logger.info(f"已复制IP文件: {bin_dir_ip_file} -> {self.ip_file}")
+                logger.debug("[CFST] 已复制IP文件: %s -> %s", bin_dir_ip_file, self.ip_file)
                 self._verify_ip_file(self.ip_file)
                 return
             except Exception as e:
-                logger.error(f"复制IP文件失败: {str(e)}")
+                logger.exception("[CFST] 复制IP文件失败: %s", str(e))
         
         # 在其他可能位置查找，支持架构自适应
-        logger.info("在其他位置查找IP文件...")
+        logger.debug("[CFST] 在其他位置查找IP文件")
         # 获取架构目录
         arch_dir = self._get_arch_dir()
         
@@ -130,18 +126,18 @@ class CloudflareSpeedTestService:
         ]
         
         for path in possible_paths:
-            logger.info(f"检查路径: {path} - {'存在' if os.path.exists(path) else '不存在'}")
+            logger.debug("[CFST] 检查路径: %s - %s", path, "存在" if os.path.exists(path) else "不存在")
             if os.path.exists(path):
                 try:
                     shutil.copy(path, self.ip_file)
-                    logger.info(f"已复制IP文件: {path} -> {self.ip_file}")
+                    logger.info("[CFST] 已复制IP文件: %s -> %s", path, self.ip_file)
                     self._verify_ip_file(self.ip_file)
                     return
                 except Exception as e:
-                    logger.error(f"复制IP文件失败: {str(e)}")
+                    logger.exception("[CFST] 复制IP文件失败: %s", str(e))
         
         # 还是找不到，创建一个基本的
-        logger.warning(f"未找到现有IP文件，创建一个基本的Cloudflare IP列表在 {self.ip_file}")
+        logger.warning("[CFST] 未找到现有IP文件，创建一个基本的Cloudflare IP列表在 %s", self.ip_file)
         self._create_default_ip_file()
         
         # 同样处理IPv6文件
@@ -154,12 +150,12 @@ class CloudflareSpeedTestService:
             with open(file_path, 'r') as f:
                 content = f.read()
                 line_count = len(content.splitlines())
-                logger.info(f"IP文件内容长度: {len(content)} 字节, {line_count} 行")
+                logger.debug("[CFST] IP文件内容长度: %s 字节, %s 行", len(content), line_count)
                 if len(content) < 10 or line_count < 2:
-                    logger.warning("IP文件内容可能无效，将创建默认IP文件")
+                    logger.warning("[CFST] IP文件内容可能无效，将创建默认IP文件")
                     self._create_default_ip_file()
         except Exception as e:
-            logger.error(f"读取IP文件失败: {str(e)}")
+            logger.exception("[CFST] 读取IP文件失败: %s", str(e))
             self._create_default_ip_file()
     
     def _create_default_ip_file(self):
@@ -192,21 +188,21 @@ class CloudflareSpeedTestService:
             # 输出文件信息
             if os.path.exists(self.ip_file):
                 file_size = os.path.getsize(self.ip_file)
-                logger.info(f"成功创建IP文件: {self.ip_file}, 大小: {file_size} 字节")
+                logger.debug("[CFST] 成功创建IP文件: %s, 大小: %s 字节", self.ip_file, file_size)
                 with open(self.ip_file, 'r') as f:
                     lines = f.readlines()
-                    logger.info(f"IP文件包含 {len(lines)} 行")
+                    logger.debug("[CFST] IP文件包含 %s 行", len(lines))
             else:
-                logger.error(f"IP文件创建失败: {self.ip_file}")
+                logger.error("[CFST] IP文件创建失败: %s", self.ip_file)
         except Exception as e:
-            logger.error(f"创建IP文件失败: {str(e)}")
+            logger.exception("[CFST] 创建IP文件失败: %s", str(e))
     
     def _ensure_ipv6_file(self):
         """确保IPv6文件存在"""
-        logger.info(f"确保IPv6文件存在: {self.ipv6_file}")
+        logger.debug("[CFST] 确保IPv6文件存在: %s", self.ipv6_file)
         
         if os.path.exists(self.ipv6_file):
-            logger.info(f"IPv6文件已存在: {self.ipv6_file}")
+            logger.debug("[CFST] IPv6文件已存在: %s", self.ipv6_file)
             return
         
         # 在可执行文件目录下查找
@@ -214,10 +210,10 @@ class CloudflareSpeedTestService:
         if os.path.exists(bin_dir_ipv6_file):
             try:
                 shutil.copy(bin_dir_ipv6_file, self.ipv6_file)
-                logger.info(f"已复制IPv6文件: {bin_dir_ipv6_file} -> {self.ipv6_file}")
+                logger.debug("[CFST] 已复制IPv6文件: %s -> %s", bin_dir_ipv6_file, self.ipv6_file)
                 return
             except Exception as e:
-                logger.error(f"复制IPv6文件失败: {str(e)}")
+                logger.exception("[CFST] 复制IPv6文件失败: %s", str(e))
         
         # 在其他位置查找，支持架构自适应
         # 获取架构目录
@@ -234,10 +230,10 @@ class CloudflareSpeedTestService:
             if os.path.exists(path):
                 try:
                     shutil.copy(path, self.ipv6_file)
-                    logger.info(f"已复制IPv6文件: {path} -> {self.ipv6_file}")
+                    logger.info("[CFST] 已复制IPv6文件: %s -> %s", path, self.ipv6_file)
                     return
                 except Exception as e:
-                    logger.error(f"复制IPv6文件失败: {str(e)}")
+                    logger.exception("[CFST] 复制IPv6文件失败: %s", str(e))
         
         # 创建一个基本的IPv6文件
         try:
@@ -251,6 +247,6 @@ class CloudflareSpeedTestService:
                 f.write("2a06:98c0::/29\n")
                 f.write("2c0f:f248::/32\n")
             
-            logger.info(f"成功创建IPv6文件: {self.ipv6_file}")
+            logger.debug("[CFST] 成功创建IPv6文件: %s", self.ipv6_file)
         except Exception as e:
-            logger.error(f"创建IPv6文件失败: {str(e)}")
+            logger.exception("[CFST] 创建IPv6文件失败: %s", str(e))

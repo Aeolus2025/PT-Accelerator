@@ -35,9 +35,9 @@ def read(config_path: str = CONFIG_PATH) -> Dict[str, Any]:
         except UnicodeDecodeError:
             continue
         except Exception as e:
-            logger.error(f"加载配置文件失败: {e}")
+            logger.exception("[CONFIG] 加载配置文件失败: %s", e)
             return {}
-    logger.error("加载配置文件失败: 编码无法识别（已尝试 utf-8 / gbk / gb18030）")
+    logger.error("[CONFIG] 加载配置文件失败: 编码无法识别（已尝试 utf-8 / gbk / gb18030）")
     return {}
 
 

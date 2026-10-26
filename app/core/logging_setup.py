@@ -9,17 +9,26 @@ import re
 from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional
 
+from app.core.log_context import RidFilter
+
 LOG_DIR = "logs"
 LOG_PATH = os.path.join(LOG_DIR, "app.log")
-LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+# rid 由 RidFilter 注入，无请求上下文时为空串
+LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(rid)s%(message)s"
 
 MAX_BYTES = 10 * 1024 * 1024
 BACKUP_COUNT = 5
 
 # 单条日志的起始行；不匹配的行是上一条的续行（异常堆栈）
+# rid 段可选：改造前的旧日志没有它。只认小写十六进制，不会误吃消息开头的 [OP] 这类标签。
 RECORD_RE = re.compile(
-    r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - (\S+) - (DEBUG|INFO|WARNING|ERROR|CRITICAL) - (.*)$"
+    r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - (\S+) - "
+    # rid 固定 8 位（见 log_context.RID_LEN），靠长度区分，小写方括号短正文不会被误吃
+    r"(DEBUG|INFO|WARNING|ERROR|CRITICAL) - (?:\[([0-9a-f]{8})\] )?(.*)$"
 )
+
+# 消息开头的分类标签，如 [HOSTS]。面板单独成列，正文里不再重复
+TAG_RE = re.compile(r"^\[([A-Z]+)\]\s*")
 
 # 首次读取时回看的字节数，避免把整个大文件读进内存
 TAIL_BYTES = 512 * 1024
@@ -27,10 +36,22 @@ MAX_LINES = 5000
 LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
 
-def setup_logging(level: int = logging.INFO) -> None:
-    """配置根 logger：控制台 + 轮转文件。"""
+def resolve_level(default: str = "INFO") -> int:
+    """按 LOG_LEVEL 环境变量取日志级别，非法值回退到 default。"""
+    name = os.environ.get("LOG_LEVEL", default).upper()
+    return getattr(logging, name, logging.INFO)
+
+
+def setup_logging(level: Optional[int] = None) -> None:
+    """配置根 logger：控制台 + 轮转文件。
+
+    level 为 None 时读 LOG_LEVEL 环境变量，方便排障时开到 DEBUG 而不用改代码。
+    """
+    if level is None:
+        level = resolve_level()
     os.makedirs(LOG_DIR, exist_ok=True)
     formatter = logging.Formatter(LOG_FORMAT)
+    rid_filter = RidFilter()
 
     root = logging.getLogger()
     root.setLevel(level)
@@ -41,12 +62,14 @@ def setup_logging(level: int = logging.INFO) -> None:
 
     stream = logging.StreamHandler()
     stream.setFormatter(formatter)
+    stream.addFilter(rid_filter)
     root.addHandler(stream)
 
     file_handler = RotatingFileHandler(
         LOG_PATH, maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT, encoding="utf-8"
     )
     file_handler.setFormatter(formatter)
+    file_handler.addFilter(rid_filter)
     root.addHandler(file_handler)
 
 
@@ -85,12 +108,17 @@ def parse_records(text: str) -> List[Dict[str, Any]]:
     for line in text.splitlines():
         match = RECORD_RE.match(line)
         if match:
+            raw = match.group(5)
+            tag_match = TAG_RE.match(raw)
             records.append(
                 {
                     "ts": match.group(1),
                     "logger": match.group(2),
                     "level": match.group(3),
-                    "msg": match.group(4),
+                    "rid": match.group(4) or "",
+                    "tag": tag_match.group(1) if tag_match else "",
+                    # 正文去掉标签，面板把标签单独成列
+                    "msg": raw[tag_match.end():] if tag_match else raw,
                     "lines": [line],
                 }
             )
@@ -99,7 +127,8 @@ def parse_records(text: str) -> List[Dict[str, Any]]:
         elif line.strip():
             # 文件从记录中间开始，首行没有归属
             records.append(
-                {"ts": "", "logger": "", "level": "INFO", "msg": line, "lines": [line]}
+                {"ts": "", "logger": "", "level": "INFO", "rid": "", "tag": "",
+                 "msg": line, "lines": [line]}
             )
     return records
 
@@ -177,8 +206,12 @@ def read_logs(
                 "ts": r["ts"],
                 "logger": r["logger"],
                 "level": r["level"],
+                "rid": r["rid"],
+                "tag": r["tag"],
                 "msg": r["msg"],
                 "text": "\n".join(r["lines"]),
+                # 正文必须带上续行，否则面板会吞掉异常堆栈
+                "body": "\n".join([r["msg"]] + r["lines"][1:]),
             }
             for r in records
         ],

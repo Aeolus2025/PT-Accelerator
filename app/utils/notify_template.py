@@ -82,12 +82,12 @@ def _render_one(source: str, ctx: dict, fallback: str) -> str:
     """渲染单个模板，失败时回退默认模板"""
     src = (source or "").strip() or fallback
     if len(src) > MAX_TEMPLATE_LEN:
-        logger.warning("通知模板超长（%d 字符），已回退默认模板", len(src))
+        logger.warning("[NOTIFY] 通知模板超长（%d 字符），已回退默认模板", len(src))
         src = fallback
     try:
         return _env.from_string(src).render(**ctx)
     except Exception as e:
-        logger.error("通知模板渲染失败，已回退默认模板：%s", e)
+        logger.exception("[NOTIFY] 通知模板渲染失败，已回退默认模板：%s", e)
         try:
             return _env.from_string(fallback).render(**ctx)
         except Exception:

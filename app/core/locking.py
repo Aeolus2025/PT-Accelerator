@@ -46,7 +46,7 @@ def config_write_lock(timeout: float = 10.0):
             except OSError:
                 if time.monotonic() >= deadline:
                     # 超时后退化为无锁继续执行，避免整个进程卡死在启动阶段
-                    logger.warning(f"获取配置写锁超时({timeout}s)，继续执行（可能存在并发写风险）")
+                    logger.exception("[CONFIG] 获取配置写锁超时(%ss)，继续执行（可能存在并发写风险）", timeout)
                     break
                 time.sleep(0.05)
         yield

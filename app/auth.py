@@ -48,11 +48,10 @@ def generate_initial_password(username: str) -> str:
     print("请妥善保存此密码，登录后请立即修改")
     print("=" * 60)
 
-    logger.warning("=" * 60)
-    logger.warning(f"管理员密码尚未设置。已自动生成初始密码: {password}")
-    logger.warning("请使用此密码登录后，在控制面板中修改密码。")
-    logger.warning(f"用户名: {username}")
-    logger.warning("=" * 60)
+    # 密码只走 stdout，不写入日志文件：日志会被页面展示，也会长期留在磁盘
+    logger.warning("[AUTH] 管理员密码尚未设置，已生成初始密码")
+    logger.warning("[AUTH] 用户名=%s 密码请在容器标准输出中查看", username)
+    logger.warning("[AUTH] 登录后请立即在「安全与认证」中修改密码")
     return password
 
 async def get_current_user(request: Request) -> Optional[User]:
@@ -109,7 +108,7 @@ def load_current_config():
                     config["auth"] = {}
                 return config
         except Exception as e:
-            logger.error(f"加载配置文件失败: {e}")
+            logger.exception("[AUTH] 加载配置文件失败: %s", e)
             return {"auth": {}}
     return {"auth": {}}
 
@@ -136,8 +135,8 @@ def reload_global_config():
         if new_config.get("auth", {}).get("secret_key"):
             init_session_serializer(new_config["auth"]["secret_key"])
             
-        logger.info("全局配置已重新加载，认证配置变更立即生效")
+        logger.info("[AUTH] 全局配置已重新加载，认证配置变更立即生效")
         return True
     except Exception as e:
-        logger.error(f"重新加载全局配置失败: {e}")
+        logger.exception("[AUTH] 重新加载全局配置失败: %s", e)
         return False 

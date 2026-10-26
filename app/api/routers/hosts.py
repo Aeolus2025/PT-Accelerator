@@ -51,14 +51,14 @@ async def add_hosts_source(
             
         # 异步更新hosts
         background_tasks.add_task(hosts_manager.update_hosts)
-        log_op("hosts.source_add", url=url)
+        log_op("添加Hosts源", 地址=url)
         return {"message": "hosts源已添加，正在后台更新hosts"}
     except HTTPException as e:
-        log_op("hosts.source_add", ok=False, level=logging.WARNING, reason=e.detail)
+        log_op("添加Hosts源", ok=False, level=logging.WARNING, 原因=e.detail)
         raise
     except Exception as e:
-        logger.error(f"添加hosts源失败: {str(e)}")
-        log_op("hosts.source_add", ok=False, error=str(e))
+        logger.exception("[HOSTS] 添加hosts源失败: %s", str(e))
+        log_op("添加Hosts源", ok=False, 错误=str(e))
         raise HTTPException(status_code=500, detail=f"添加hosts源失败: {str(e)}")
 
 
@@ -84,14 +84,14 @@ async def delete_hosts_source(
             
         # 异步更新hosts
         background_tasks.add_task(hosts_manager.update_hosts)
-        log_op("hosts.source_remove", url=url)
+        log_op("删除Hosts源", 地址=url)
         return {"message": "hosts源已删除，正在后台更新hosts"}
     except HTTPException as e:
-        log_op("hosts.source_remove", ok=False, level=logging.WARNING, reason=e.detail)
+        log_op("删除Hosts源", ok=False, level=logging.WARNING, 原因=e.detail)
         raise
     except Exception as e:
-        logger.error(f"删除hosts源失败: {str(e)}")
-        log_op("hosts.source_remove", ok=False, error=str(e))
+        logger.exception("[HOSTS] 删除hosts源失败: %s", str(e))
+        log_op("删除Hosts源", ok=False, 错误=str(e))
         raise HTTPException(status_code=500, detail=f"删除hosts源失败: {str(e)}")
 
 
@@ -107,14 +107,14 @@ async def update_hosts(
         def task():
             ok = hosts_manager.update_hosts()
             msg = hosts_manager.get_task_status()["message"] or ("更新完成" if ok else "更新失败")
-            logger.info(f"[任务通知] 仅更新Hosts -> {msg}")
+            logger.info("[TASK] 通知 任务=仅更新Hosts 说明=%s", msg)
             send_task_notify("仅更新Hosts", msg)
         background_tasks.add_task(task)
-        log_op("hosts.update")
+        log_op("更新Hosts")
         return {"message": "hosts更新任务已启动"}
     except Exception as e:
-        logger.error(f"更新hosts失败: {str(e)}")
-        log_op("hosts.update", ok=False, error=str(e))
+        logger.exception("[HOSTS] 更新hosts失败: %s", str(e))
+        log_op("更新Hosts", ok=False, 错误=str(e))
         raise HTTPException(status_code=500, detail=f"更新hosts失败: {str(e)}")
 
 
@@ -127,7 +127,7 @@ async def get_current_hosts(
     try:
         return {"hosts": hosts_manager.read_system_hosts()}
     except Exception as e:
-        logger.error(f"获取hosts失败: {str(e)}")
+        logger.exception("[HOSTS] 获取hosts失败: %s", str(e))
         raise HTTPException(status_code=500, detail=f"获取hosts失败: {str(e)}")
 
 
@@ -140,17 +140,17 @@ async def run_cfst_script(
     """运行CloudflareSpeedTest优选脚本和更新hosts源（严格串行）"""
     try:
         def combined_task():
-            logger.info("严格串行执行：优选IP+更新tracker+更新hosts")
+            logger.info("[HOSTS] 严格串行执行：优选IP+更新tracker+更新hosts")
             ok = hosts_manager.run_cfst_and_update_hosts()
             msg = hosts_manager.get_task_status()["message"] or ("执行完成" if ok else "执行失败")
-            logger.info(f"[任务通知] IP优选与Hosts更新 -> {msg}")
+            logger.info("[TASK] 通知 任务=IP优选与Hosts更新 说明=%s", msg)
             send_task_notify("IP优选与Hosts更新", msg)
         background_tasks.add_task(combined_task)
-        log_op("cfst.run")
+        log_op("运行IP优选")
         return {"message": "IP优选与Hosts更新任务已启动（严格串行）"}
     except Exception as e:
-        logger.error(f"启动组合任务失败: {str(e)}")
-        log_op("cfst.run", ok=False, error=str(e))
+        logger.exception("[HOSTS] 启动组合任务失败: %s", str(e))
+        log_op("运行IP优选", ok=False, 错误=str(e))
         raise HTTPException(status_code=500, detail=f"启动组合任务失败: {str(e)}")
 
 
@@ -165,36 +165,35 @@ async def update_all_trackers(
         # _update_all_trackers_ip 内部已写盘并同步内存副本，这里无需再同步
         hosts_manager._update_all_trackers_ip(ip)
         hosts_manager.update_hosts()
-        log_op("tracker.set_ip_all", ip=ip)
+        log_op("批量修改IP", IP=ip)
         return {"message": f"已将所有Tracker的IP更新为 {ip}"}
     except Exception as e:
-        logger.error(f"更新所有Tracker的IP失败: {str(e)}")
-        log_op("tracker.set_ip_all", ok=False, ip=ip, error=str(e))
+        logger.exception("[HOSTS] 更新所有Tracker的IP失败: %s", str(e))
+        log_op("批量修改IP", ok=False, IP=ip, 错误=str(e))
         raise HTTPException(status_code=500, detail=f"更新所有Tracker的IP失败: {str(e)}")
 
 
-@router.post("/clear-and-update-hosts")
-async def clear_and_update_hosts(
-    background_tasks: BackgroundTasks,
+@router.post("/clear-generated-hosts")
+async def clear_generated_hosts(
     hosts_manager: HostsManager = Depends(get_hosts_manager)
 ):
-    """清理项目分区并重新生成hosts内容（保留原有系统hosts未受影响）"""
+    """删除本项目写入的 hosts 分区，不重新生成。
+
+    用来临时摘掉所有 PT 记录；系统原有内容不受影响。
+    """
     try:
-        # 1. 仅移除PT-Accelerator分区，保留原有系统hosts
+        # 与正在运行的更新任务互斥，避免清理后又被回写
+        if hosts_manager.task_running:
+            raise HTTPException(status_code=409, detail="Hosts 正在更新中，请稍后再试")
         hosts_manager.clear_project_sections()
-        # 2. 后台更新hosts并通知
-        def task():
-            ok = hosts_manager.update_hosts()
-            msg = hosts_manager.get_task_status()["message"] or ("更新完成" if ok else "更新失败")
-            logger.info(f"[任务通知] 清空并更新Hosts -> {msg}")
-            send_task_notify("清空并更新Hosts", msg)
-        background_tasks.add_task(task)
-        log_op("hosts.rebuild")
-        return {"message": "已清理项目分区并启动更新任务（原有hosts内容已保留）"}
+        log_op("清空Hosts")
+        return {"message": "已删除本项目生成的 hosts 记录（系统原有内容未受影响）"}
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"清空并更新hosts失败: {str(e)}")
-        log_op("hosts.rebuild", ok=False, error=str(e))
-        raise HTTPException(status_code=500, detail=f"清空并更新hosts失败: {str(e)}")
+        logger.exception("[HOSTS] 清空生成的hosts失败: %s", str(e))
+        log_op("清空Hosts", ok=False, 错误=str(e))
+        raise HTTPException(status_code=500, detail=f"清空生成的hosts失败: {str(e)}")
 
 
 
@@ -213,14 +212,14 @@ async def save_hosts_content(
         removed = hosts_manager.save_user_content(content)
         # 保存后触发一次后台更新，确保项目分区一致（非阻塞）
         background_tasks.add_task(hosts_manager.update_hosts)
-        log_op("hosts.save_content", removed_sections=removed, size=len(content))
+        log_op("保存Hosts内容", 移除分区=removed, 大小=len(content))
         return {"success": True, "message": "Hosts已保存，已启动后台更新", "removed_sections": removed}
     except HTTPException as e:
-        log_op("hosts.save_content", ok=False, level=logging.WARNING, reason=e.detail)
+        log_op("保存Hosts内容", ok=False, level=logging.WARNING, 原因=e.detail)
         raise
     except Exception as e:
-        logger.error(f"保存hosts失败: {str(e)}")
-        log_op("hosts.save_content", ok=False, error=str(e))
+        logger.exception("[HOSTS] 保存hosts失败: %s", str(e))
+        log_op("保存Hosts内容", ok=False, 错误=str(e))
         raise HTTPException(status_code=500, detail=f"保存hosts失败: {str(e)}")
 
 

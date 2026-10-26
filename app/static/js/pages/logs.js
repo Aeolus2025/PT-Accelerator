@@ -36,9 +36,19 @@
 
     function recordHtml(record) {
         var level = (record.level || 'INFO').toLowerCase();
+        // "2026-10-26 17:05:11,204" -> "10-26 17:05:11"，日期前缀在长会话里不提供信息
+        var time = (record.ts || '').slice(5, 19);
+        var parts = ['[' + ui.escapeHtml(time) + ']',
+                     '[' + ui.escapeHtml(record.level || 'INFO') + ']'];
+        // 旧日志没有标签，省略该段而不是显示空括号
+        if (record.tag) {
+            parts.push('[' + ui.escapeHtml(record.tag) + ']');
+        }
         // <pre> 只接受 phrasing content，这里用 span + CSS display:block
         return '<span class="log-rec lv-' + ui.escapeHtml(level) + '">' +
-            ui.escapeHtml(record.text) + '</span>';
+            '<span class="log-head">' + parts.join(' - ') + ' - </span>' +
+            '<span class="log-body">' + ui.escapeHtml(record.body || '') + '</span>' +
+            '</span>';
     }
 
     function isNearBottom(node) {
@@ -169,13 +179,15 @@
     // 定时器只负责轮询，开关状态由 streaming 表达，两者分开才不会互相打脸
     function syncTimer() {
         var shouldRun = state.streaming && state.active && !document.hidden;
-        if (shouldRun && !state.timer) {
-            state.timer = setInterval(function () {
-                fetchLogs(false);
-            }, POLL_MS);
-        } else if (!shouldRun) {
+        if (!shouldRun) {
             clearTimer();
+            return;
         }
+        // 每次变更条件都重建，避免沿用旧起点导致刷新间隔被拉长
+        clearTimer();
+        state.timer = setInterval(function () {
+            fetchLogs(false);
+        }, POLL_MS);
     }
 
     function startStream() {
@@ -246,8 +258,10 @@
         ['DEBUG', 'INFO', 'WARNING', 'ERROR'].forEach(function (name) {
             ui.delegate(document, 'change', '#lv-' + name, function () {
                 state.levels[name] = this.checked;
-                // 已有记录里可能缺该级别，重新拉一次才完整
+                // 已有记录里可能缺该级别，重新拉一次才完整；
+                // 拉完必须重新对时，否则定时器仍是从旧配置那次刷新算起
                 refresh();
+                syncTimer();
             });
         });
 

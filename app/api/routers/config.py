@@ -61,8 +61,14 @@ async def update_config(
             for key, value in (config_data or {}).items():
                 current[key] = value
 
-        # mutate 返回的是完整配置，提交的节名要先记下来
+        # mutate 返回的是完整配置，提交的节名与键名要先记下来
         changed_sections = sorted(config_data or {})
+        changed_keys = sorted({
+            f"{section}.{key}"
+            for section, value in (config_data or {}).items()
+            if isinstance(value, dict)
+            for key in value
+        })
         config_data = config_store.mutate(_merge)
 
         # 更新服务配置
@@ -70,12 +76,13 @@ async def update_config(
         cloudflare_service.update_config(config_data)
         scheduler_service.update_config(config_data)
 
-        log_op("config.update", sections=",".join(changed_sections))
+        log_op("更新配置", 分区=",".join(changed_sections),
+               changed=",".join(changed_keys) or "-")
         return {"message": "配置已更新"}
     except HTTPException as e:
-        log_op("config.update", ok=False, level=logging.WARNING, reason=e.detail)
+        log_op("更新配置", ok=False, level=logging.WARNING, 原因=e.detail)
         raise
     except Exception as e:
-        logger.error(f"更新配置失败: {str(e)}")
-        log_op("config.update", ok=False, error=str(e))
+        logger.exception("[CONFIG] 更新配置失败: %s", str(e))
+        log_op("更新配置", ok=False, 错误=str(e))
         raise HTTPException(status_code=500, detail=f"更新配置失败: {str(e)}")

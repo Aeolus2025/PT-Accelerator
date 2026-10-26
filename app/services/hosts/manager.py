@@ -82,7 +82,7 @@ class HostsManager:
         try:
             config_store.update(partial_update or {}, CONFIG_PATH)
         except Exception as e:
-            logger.error(f"安全合并写配置失败: {e}")
+            logger.exception("[HOSTS] 安全合并写配置失败: %s", e)
 
     def _config(self) -> Dict[str, Any]:
         """读取当前配置。
@@ -122,7 +122,8 @@ class HostsManager:
             
             # 记录被过滤的非Cloudflare站点
             if non_cf_domains:
-                logger.info(f"[PT站点过滤] 以下{len(non_cf_domains)}个非Cloudflare站点未添加到hosts: {', '.join(non_cf_domains)}")
+                logger.info("[HOSTS] 过滤非Cloudflare站点 数量=%s 域名=%s",
+                        len(non_cf_domains), ",".join(non_cf_domains))
                 
         return entries
 
@@ -151,7 +152,7 @@ class HostsManager:
                 dropped_keys.add(clean_domain)
 
         if dropped:
-            logger.info(f"[历史清理] 从配置中过滤了 {len(dropped)} 个非Cloudflare站点: {', '.join(dropped)}")
+            logger.info("[HOSTS] 历史清理 数量=%s 域名=%s", len(dropped), ",".join(dropped))
 
             # 只按锁内最新列表剔除被判定的域名：检测期间新加的 tracker 不能被旧快照覆盖掉
             def _apply(current):
@@ -162,7 +163,7 @@ class HostsManager:
                 ]
 
             config_store.mutate(_apply)
-            logger.info("[历史清理] 已更新配置文件(合并写)，移除了所有非Cloudflare站点")
+            logger.info("[HOSTS] 历史清理已写回配置 移除数=%s", len(dropped))
             kept = [t for t in kept if _strip_port(t.get("domain") or "") not in dropped_keys]
         return kept
 
@@ -180,7 +181,7 @@ class HostsManager:
         }
         merged_enabled = self._is_merged_hosts_enabled()
         if not merged_enabled:
-            logger.info("[MergedHosts] 当前没有启用的 hosts 源，跳过来源收集与历史兜底")
+            logger.debug("[MergedHosts] 当前没有启用的 hosts 源，跳过来源收集与历史兜底")
         self._prune_domain_ip_history()
 
         candidates: Dict[str, set] = {}
@@ -195,14 +196,15 @@ class HostsManager:
                 if s.get("enable") and s.get("url") and s.get("name")
             ]
             if hosts_sources:
-                logger.info(f"开始处理 {len(hosts_sources)} 个外部hosts源")
+                logger.debug("[MergedHosts] 开始处理 %s 个外部hosts源", len(hosts_sources))
             for i, source in enumerate(hosts_sources):
                 source_name = source.get("name", "未命名源")
                 task_registry.start(TASK_NAME, f"正在处理hosts源 ({i+1}/{len(hosts_sources)}): {source_name}")
                 started = time.time()
-                logger.info(f"正在处理hosts源 ({i+1}/{len(hosts_sources)}): {source_name}")
+                logger.debug("[MergedHosts] 处理源 %s/%s 名称=%s", i + 1, len(hosts_sources), source_name)
                 entries = self.sources._fetch_hosts_source(source["url"])
-                logger.info(f"获取hosts源 {source_name} 完成，返回 {len(entries)} 条记录，耗时 {time.time() - started:.2f} 秒")
+                logger.debug("[MergedHosts] 源完成 名称=%s 条目=%s 耗时=%s",
+                             source_name, len(entries), int((time.time() - started) * 1000))
                 for ip, domain in entries:
                     if skip(domain):
                         continue
@@ -220,14 +222,14 @@ class HostsManager:
             backup = self._load_merged_hosts_backup()
             for lost_domain in set(backup) - current_domains:
                 if not self._can_keep_lost_domain(lost_domain):
-                    logger.info(f"[兜底跳过] 域名 {lost_domain} 不满足兜底条件（无启用源/已禁用/黑名单），丢弃")
+                    logger.debug("[MergedHosts] 兜底跳过 域名=%s 原因=不满足条件", lost_domain)
                     continue
                 lost_ip = backup[lost_domain]
                 if self.detector._dns_check(lost_domain, lost_ip):
                     candidates.setdefault(lost_domain, set()).add(lost_ip)
-                    logger.warning(f"[兜底保留] 域名 {lost_domain} 本次未被任何源收录，但DNS检测有效，保留上次IP: {lost_ip}")
+                    logger.warning("[兜底保留] 域名 %s 本次未被任何源收录，但DNS检测有效，保留上次IP: %s", lost_domain, lost_ip)
                 else:
-                    logger.warning(f"[兜底丢弃] 域名 {lost_domain} 本次未被任何源收录，且DNS检测无效，丢弃上次IP: {lost_ip}")
+                    logger.warning("[兜底丢弃] 域名 %s 本次未被任何源收录，且DNS检测无效，丢弃上次IP: %s", lost_domain, lost_ip)
 
         return candidates, merged_enabled
 
@@ -269,6 +271,12 @@ class HostsManager:
 
         return best_ips, log_lines
 
+    def _hosts_path(self) -> str:
+        """hosts 文件路径；store 不可用时退回默认值，只用于日志。"""
+        store = getattr(self, "store", None)
+        getter = getattr(store, "get_hosts_path", None)
+        return getter() if callable(getter) else "unknown"
+
     def _write_hosts_sections(self, pt_entries: List[str], merged_ips: Dict[str, str], merged_enabled: bool):
         """拼出全部分区并原子写入系统 hosts，返回写入的条目总数。"""
         sections = self.store._build_pt_section(pt_entries)
@@ -278,13 +286,15 @@ class HostsManager:
         sections.extend(self.store._build_merged_section(merged_entries, merged_enabled))
 
         task_registry.start(TASK_NAME, "正在更新系统hosts文件")
-        logger.info("开始更新系统hosts文件")
-        started = time.time()
+        started = time.perf_counter()
         self.store._update_system_hosts_with_sections(sections)
-        logger.info(f"更新系统hosts文件完成，耗时 {time.time() - started:.2f} 秒")
 
         total_entries = sum(len(entries) for _, entries, _ in sections)
-        logger.info(f"成功更新hosts文件，添加了{total_entries}条记录，共{len(sections)}个分区")
+        elapsed = int((time.perf_counter() - started) * 1000)
+        logger.info(
+            "[HOSTS] 写入 路径=%s 条目=%s 分区=%s 耗时=%sms",
+            self._hosts_path(), total_entries, len(sections), elapsed,
+        )
         return total_entries
 
     def _save_backup(self, merged_ips: Dict[str, str], merged_enabled: bool):
@@ -300,7 +310,7 @@ class HostsManager:
         否则界面已提示"任务已启动"，实际这次变更要等到下一次定时或手动触发才生效。
         """
         if self.task_running:
-            logger.warning("已有hosts更新任务在运行，本次变更将在当前任务结束后补跑一次")
+            logger.warning("[HOSTS] 已有hosts更新任务在运行，本次变更将在当前任务结束后补跑一次")
             self.pending_update = True
             return False
 
@@ -312,30 +322,35 @@ class HostsManager:
                     return False
                 if not self.pending_update:
                     return True
-                logger.info("检测到运行期间的更新请求，补跑一次 hosts 更新")
+                logger.info("[TASK] 更新Hosts 阶段=补跑 原因=运行期间收到新请求")
         finally:
             self.task_running = False
 
     def _update_hosts_once(self) -> bool:
         """执行一轮完整的 hosts 更新，返回是否成功。"""
         task_registry.start(TASK_NAME, "开始更新hosts文件...")
-        logger.info("开始更新hosts文件...")
+        started = time.perf_counter()
+        logger.info("[TASK] 更新Hosts 阶段=开始")
 
         try:
             self._filter_non_cloudflare_trackers()
 
             pt_entries = self._collect_pt_entries()
-            logger.info(f"收集到 {len(pt_entries)} 条PT站点条目")
-
             candidates, merged_enabled = self._collect_source_candidates()
             merged_ips, log_lines = self._pick_best_ip(candidates)
 
             total_entries = self._write_hosts_sections(pt_entries, merged_ips, merged_enabled)
 
-            logger.info("=== 域名优选IP结果汇总 ===")
-            for line in log_lines:
-                logger.info(line)
             self._save_backup(merged_ips, merged_enabled)
+
+            # 逐条优选结果只在 DEBUG 下看
+            for line in log_lines:
+                logger.debug("[MergedHosts] %s", line)
+            elapsed = int((time.perf_counter() - started) * 1000)
+            logger.info(
+                "[TASK] 更新Hosts 阶段=完成 PT条目=%s 合并条目=%s 合计=%s 耗时=%sms",
+                len(pt_entries), len(merged_ips), total_entries, elapsed,
+            )
 
             task_registry.finish(TASK_NAME, f"已完成hosts更新，添加了{total_entries}条记录")
             return True
@@ -354,33 +369,33 @@ class HostsManager:
         """
         result_path = os.path.join(os.path.dirname(os.path.abspath(script_path)), "result_hosts.txt")
         if not os.path.exists(result_path):
-            logger.error(f"未找到优选结果文件: {result_path}")
+            logger.error("[HOSTS] 未找到优选结果文件: %s", result_path)
             return None
 
         try:
             with open(result_path, "r", encoding="utf-8", errors="replace") as f:
                 lines = [line.strip() for line in f if line.strip()]
         except OSError as e:
-            logger.error(f"读取优选结果文件失败: {e}")
+            logger.exception("[HOSTS] 读取优选结果文件失败: %s", e)
             return None
 
         if len(lines) < 2:
-            logger.error(f"优选结果文件无数据行: {result_path}")
+            logger.error("[HOSTS] 优选结果文件无数据行: %s", result_path)
             return None
 
         best_ip = lines[1].split(",")[0].strip()
         if not best_ip:
-            logger.error(f"优选结果文件第一行 IP 为空: {lines[1]!r}")
+            logger.error("[CFST] 结果文件无有效IP 原始=%r", lines[1])
             return None
         return best_ip
 
     def add_cloudflare_ip(self, domain: str, ip: str):
         """添加Cloudflare优选IP到配置"""
-        logger.info(f"为域名 {domain} 设置Cloudflare优选IP: {ip}")
+        logger.info("[HOSTS] tracker 设置优选IP 域名=%s IP=%s", domain, ip)
         
         # 设置最佳IP
         self.best_cloudflare_ip = ip
-        logger.info(f"设置最佳Cloudflare IP: {ip}")
+        logger.info("[CFST] best_ip IP=%s", ip)
         
         # 更新配置中的IP：基于磁盘快照修改，避免覆盖其它进程的改动
         trackers = self._config().get("trackers") or []
@@ -419,7 +434,7 @@ class HostsManager:
             if tracker.get("enable") and tracker.get("ip") != ip:
                 tracker["ip"] = ip
                 changed = True
-                logger.info(f"更新tracker {tracker.get('domain')} 的IP为 {ip}")
+                logger.debug("[HOSTS] tracker 更新IP 域名=%s IP=%s", tracker.get("domain"), ip)
 
         # 全量写盘会覆盖并发改动，走 merge 只提交 trackers
         if changed:
@@ -432,7 +447,7 @@ class HostsManager:
         Cloudflare tracker。其余收集来源、挑 IP、写 hosts 的步骤两者共用。
         """
         if self.task_running:
-            logger.warning("已有hosts更新任务在运行，本次变更将在当前任务结束后补跑一次")
+            logger.warning("[HOSTS] 已有hosts更新任务在运行，本次变更将在当前任务结束后补跑一次")
             self.pending_update = True
             return False
         self.task_running = True
@@ -445,14 +460,14 @@ class HostsManager:
                     script_path = "cfst_linux_arm64/cfst_hosts.sh"
                 else:
                     script_path = "cfst_linux_amd64/cfst_hosts.sh"
-            logger.info("开始执行严格串行的优选IP+更新tracker+更新hosts流程")
+            logger.info("[TASK] 运行IP优选 阶段=start")
 
             best_ip = self._run_cfst_script(script_path)
             if not best_ip:
                 return False  # _run_cfst_script 已写好失败状态
 
             self.best_cloudflare_ip = best_ip
-            logger.info(f"串行流程提取到最优IP: {best_ip}")
+            logger.info("[TASK] 运行IP优选 阶段=best_ip IP=%s", best_ip)
 
             updated_count = self._apply_ip_to_trackers(best_ip)
 
@@ -461,9 +476,8 @@ class HostsManager:
             merged_ips, log_lines = self._pick_best_ip(candidates)
             total_entries = self._write_hosts_sections(pt_entries, merged_ips, merged_enabled)
 
-            logger.info("=== 域名优选IP结果汇总 ===")
             for line in log_lines:
-                logger.info(line)
+                logger.debug("[MergedHosts] %s", line)
             self._save_backup(merged_ips, merged_enabled)
 
             task_registry.finish(
@@ -471,7 +485,7 @@ class HostsManager:
                 f"Cloudflare优选完成！IP: {best_ip}，已更新 {updated_count} 个Tracker和 {total_entries} 条hosts记录",
             )
             self.task_running = False
-            logger.info("已完成hosts文件更新")
+            logger.info("[TASK] 运行IP优选 阶段=done 结果=成功")
             return True
         except Exception as e:
             error_msg = f"严格串行流程执行失败: {str(e)}"
@@ -483,7 +497,7 @@ class HostsManager:
     def _run_cfst_script(self, script_path: str):
         """跑优选脚本并从结果文件读回最优 IP，失败时返回 None 并置好任务状态。"""
         if not os.path.exists(script_path):
-            logger.error(f"脚本文件不存在: {script_path}")
+            logger.error("[HOSTS] 脚本文件不存在: %s", script_path)
             task_registry.finish(TASK_NAME, f"优选失败: 脚本文件不存在: {script_path}")
             self.task_running = False
             return None
@@ -498,22 +512,22 @@ class HostsManager:
                 timeout=CFST_SCRIPT_TIMEOUT,
             )
         except subprocess.TimeoutExpired:
-            logger.error(f"优选脚本执行超时（{CFST_SCRIPT_TIMEOUT}s），流程中止")
+            logger.exception("[HOSTS] 优选脚本执行超时（%ss），流程中止", CFST_SCRIPT_TIMEOUT)
             task_registry.finish(TASK_NAME, f"优选失败: 脚本执行超时（{CFST_SCRIPT_TIMEOUT}s）")
             self.task_running = False
             return None
 
         if result.returncode != 0:
-            logger.error(f"脚本退出码 {result.returncode}: {result.stderr}")
+            logger.error("[HOSTS] 脚本退出码 %s: %s", result.returncode, result.stderr)
             task_registry.finish(TASK_NAME, f"优选失败: 脚本退出码 {result.returncode}")
             self.task_running = False
             return None
 
-        logger.info(f"脚本执行成功: {result.stdout}")
+        logger.debug("[CFST] 脚本输出 长度=%s", len(result.stdout or ""))
         # 优先读脚本落盘的结果文件，比自己解析中文 stdout 可靠得多
         best_ip = self._read_best_ip_from_result(script_path)
         if not best_ip:
-            logger.error("未能从脚本输出中提取到最优IP，流程中止")
+            logger.error("[HOSTS] 未能从脚本输出中提取到最优IP，流程中止")
             task_registry.finish(TASK_NAME, "优选失败: 未能提取到最优IP")
             self.task_running = False
             return None
@@ -538,7 +552,8 @@ class HostsManager:
                 dropped.append(domain)
 
         if dropped:
-            logger.info(f"[IP优选] 过滤了 {len(dropped)} 个非Cloudflare站点: {', '.join(dropped)}")
+            logger.info("[HOSTS] 优选过滤非Cloudflare站点 数量=%s 域名=%s",
+                        len(dropped), ",".join(dropped))
 
         dropped_keys = {_strip_port(d) for d in dropped}
         updated = 0
@@ -558,7 +573,7 @@ class HostsManager:
             current["trackers"] = result
 
         config_store.mutate(_apply)
-        logger.info(f"已将 {updated} 个Cloudflare站点Tracker的IP更新为 {best_ip}")
+        logger.info("[HOSTS] tracker 批量更新IP 数量=%s IP=%s", updated, best_ip)
         return updated
 
 
@@ -572,7 +587,7 @@ class HostsManager:
             del self.domain_ip_history[domain]
         if domain in self.domain_failure_counter:
             del self.domain_failure_counter[domain]
-        logger.info(f"[Tracker删除] 已清理历史记录和失败计数: {domain}")
+        logger.debug("[HOSTS] tracker 删除后清理历史 域名=%s", domain)
 
     def _load_merged_hosts_backup(self):
         backup_path = os.path.join("config", "merged_hosts_backup.json")
@@ -581,7 +596,7 @@ class HostsManager:
                 with open(backup_path, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
-                logger.warning(f"读取MergedHosts备份失败: {e}")
+                logger.exception("[HOSTS] 读取MergedHosts备份失败: %s", e)
         return {}
 
     def _save_merged_hosts_backup(self, merged_dict):
@@ -590,7 +605,7 @@ class HostsManager:
             with open(backup_path, "w", encoding="utf-8") as f:
                 json.dump(merged_dict, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            logger.warning(f"写入MergedHosts备份失败: {e}")
+            logger.exception("[HOSTS] 写入MergedHosts备份失败: %s", e)
 
     def _get_disabled_tracker_domains(self):
         """获取所有已禁用的tracker域名"""
@@ -655,7 +670,7 @@ class HostsManager:
             history.pop(key, None)
 
         if stale:
-            logger.info(f"[历史清理] domain_ip_history 清理 {len(stale)} 条残留: {', '.join(sorted(stale))}")
+            logger.debug("[HOSTS] domain_ip_history 清理残留 数量=%s", len(stale))
         return set(stale)
 
     def _can_keep_lost_domain(self, domain: str) -> bool:

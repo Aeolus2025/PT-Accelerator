@@ -30,7 +30,7 @@ async def get_logs(
         result["logs"] = "\n".join(record["text"] for record in result["records"])
         return result
     except Exception as e:
-        logger.error(f"获取日志失败: {str(e)}")
+        logger.exception("[LOG] 获取日志失败: %s", str(e))
         return {
             "logs": "",
             "records": [],
@@ -48,8 +48,8 @@ async def clear_logs():
     try:
         logging_setup.truncate_log()
         # 先截断再记：写在下一次打开的新文件里，所以这一行不会被自己清掉
-        log_op("logs.clear")
+        log_op("清空日志")
         return {"success": True, "message": "日志已清空"}
     except Exception as e:
-        logger.error(f"清空日志失败: {str(e)}")
+        logger.exception("[LOG] 清空日志失败: %s", str(e))
         return {"success": False, "message": f"清空日志失败: {str(e)}"}

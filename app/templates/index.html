@@ -46,13 +46,13 @@
                 </button>
             </li>
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="logs-tab" data-bs-toggle="tab" data-bs-target="#logs-panel" type="button" role="tab" aria-controls="logs-panel" aria-selected="false">
-                    <i class="bi bi-journal-text me-1"></i>日志
+                <button class="nav-link" id="notify-tab" data-bs-toggle="tab" data-bs-target="#notify-settings" type="button" role="tab" aria-controls="notify-settings" aria-selected="false">
+                    <i class="bi bi-bell me-1"></i>通知设置
                 </button>
             </li>
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="notify-tab" data-bs-toggle="tab" data-bs-target="#notify-settings" type="button" role="tab" aria-controls="notify-settings" aria-selected="false">
-                    <i class="bi bi-bell me-1"></i>通知设置
+                <button class="nav-link" id="logs-tab" data-bs-toggle="tab" data-bs-target="#logs-panel" type="button" role="tab" aria-controls="logs-panel" aria-selected="false">
+                    <i class="bi bi-journal-text me-1"></i>日志
                 </button>
             </li>
             <li class="nav-item" role="presentation">
@@ -99,8 +99,8 @@
                                 <button class="btn btn-secondary action-btn" id="btn-update-hosts">
                                     <i class="bi bi-arrow-repeat"></i>仅更新Hosts
                                 </button>
-                                <button class="btn btn-danger action-btn mt-2" id="btn-clear-and-update-hosts">
-                                    <i class="bi bi-trash"></i>清空Hosts文件并更新Hosts
+                                <button class="btn btn-danger action-btn mt-2" id="btn-clear-generated-hosts">
+                                    <i class="bi bi-trash"></i>清空生成的Hosts
                                 </button>
                             </div>
                         </div>
@@ -1119,6 +1119,7 @@ X-Custom: value"></textarea>
     <script src="/static/js/core/api.js?v={{ app_version }}"></script>
     <script src="/static/js/core/store.js?v={{ app_version }}"></script>
     <script src="/static/js/core/ui.js?v={{ app_version }}"></script>
+    <script src="/static/js/core/tabs.js?v={{ app_version }}"></script>
     <script src="/static/js/pages/dashboard.js?v={{ app_version }}"></script>
     <script src="/static/js/pages/trackers.js?v={{ app_version }}"></script>
     <script src="/static/js/pages/hosts.js?v={{ app_version }}"></script>

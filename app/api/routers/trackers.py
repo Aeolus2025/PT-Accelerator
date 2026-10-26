@@ -53,17 +53,17 @@ async def add_tracker(
         hosts_manager.reload_whitelist()
         # 统一异步触发hosts更新，避免接口阻塞
         background_tasks.add_task(hosts_manager.update_hosts)
-        log_op("tracker.add", target=domain, ip=tracker.get("ip"),
-               force_cloudflare=force_cloudflare)
+        log_op("添加Tracker", 目标=domain, IP=tracker.get("ip"),
+               强制CF=force_cloudflare)
         return {"message": "Tracker已添加，Hosts更新任务已在后台启动"}
     except HTTPException as e:
         # 业务性拒绝（已存在、IP 不一致）记 WARNING
-        log_op("tracker.add", target=tracker.get("domain", ""), ok=False,
+        log_op("添加Tracker", 目标=tracker.get("domain", ""), ok=False,
                level=logging.WARNING, reason=e.detail)
         raise
     except Exception as e:
-        logger.error(f"添加Tracker失败: {str(e)}")
-        log_op("tracker.add", target=tracker.get("domain", ""), ok=False, error=str(e))
+        logger.exception("[TRACKER] 添加Tracker失败: %s", str(e))
+        log_op("添加Tracker", 目标=tracker.get("domain", ""), ok=False, 错误=str(e))
         raise HTTPException(status_code=500, detail=f"添加Tracker失败: {str(e)}")
 
 
@@ -93,14 +93,14 @@ async def delete_tracker(
         # 在后台更新hosts
         background_tasks.add_task(hosts_manager.update_hosts)
 
-        log_op("tracker.delete", target=domain)
+        log_op("删除Tracker", 目标=domain)
         return {"message": "Tracker已删除，Hosts更新任务已在后台启动"}
     except HTTPException as e:
-        log_op("tracker.delete", target=domain, ok=False, level=logging.WARNING, reason=e.detail)
+        log_op("删除Tracker", 目标=domain, ok=False, level=logging.WARNING, 原因=e.detail)
         raise
     except Exception as e:
-        logger.error(f"删除Tracker失败: {str(e)}")
-        log_op("tracker.delete", target=domain, ok=False, error=str(e))
+        logger.exception("[TRACKER] 删除Tracker失败: %s", str(e))
+        log_op("删除Tracker", 目标=domain, ok=False, 错误=str(e))
         raise HTTPException(status_code=500, detail=f"删除Tracker失败: {str(e)}")
 
 
@@ -143,8 +143,8 @@ async def batch_add_domains(
 
         config_store.mutate(_batch_add)
         if outcome.get("error"):
-            log_op("tracker.batch_add", ok=False, level=logging.WARNING,
-                   requested=len(domains), reason=outcome["error"])
+            log_op("批量添加Tracker", ok=False, level=logging.WARNING,
+                   请求数=len(domains), reason=outcome["error"])
             return {"status": "error", "message": outcome["error"]}
         added, skipped = outcome["added"], outcome["skipped"]
             
@@ -162,7 +162,7 @@ async def batch_add_domains(
             "skipped": skipped
         }
         
-        log_op("tracker.batch_add", requested=len(domains),
+        log_op("批量添加Tracker", 请求数=len(domains),
                added=len(added), skipped=len(skipped))
         return {
             "status": "success", 
@@ -170,8 +170,8 @@ async def batch_add_domains(
             "details": details
         }
     except Exception as e:
-        logger.error(f"批量添加域名失败: {str(e)}")
-        log_op("tracker.batch_add", ok=False, error=str(e))
+        logger.exception("[TRACKER] 批量添加域名失败: %s", str(e))
+        log_op("批量添加Tracker", ok=False, 错误=str(e))
         return {"status": "error", "message": f"批量添加域名失败: {str(e)}"}
 
 
@@ -185,11 +185,11 @@ async def clear_all_trackers(
         config_store.mutate(lambda current: current.__setitem__("trackers", []))
         hosts_manager.reload_whitelist()
         background_tasks.add_task(hosts_manager.update_hosts)
-        log_op("tracker.clear")
+        log_op("清空Tracker")
         return {"message": "已清空所有tracker并同步更新hosts"}
     except Exception as e:
-        logger.error(f"清空所有tracker失败: {str(e)}")
-        log_op("tracker.clear", ok=False, error=str(e))
+        logger.exception("[TRACKER] 清空所有tracker失败: %s", str(e))
+        log_op("清空Tracker", ok=False, 错误=str(e))
         raise HTTPException(status_code=500, detail=f"清空所有tracker失败: {str(e)}")
 
 
