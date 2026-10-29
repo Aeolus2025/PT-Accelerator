@@ -41,7 +41,7 @@ class SchedulerService:
             }
         )
         self._setup_jobs()
-        logger.debug("[SCHED] 已创建新的调度器实例")
+        logger.debug("[TASK] 已创建新的调度器实例")
     
     def update_config(self, config: Dict[str, Any]):
         """更新配置；定时任务未变化时不碰调度器。
@@ -57,37 +57,36 @@ class SchedulerService:
             return
 
         if not self.scheduler:
-            logger.info("[SCHED] 调度器尚未创建，新配置将在启动时生效 结果=失败")
+            logger.info("[TASK] 调度器尚未创建，新配置将在启动时生效 结果=失败")
             return
 
-        logger.info("[SCHED] 定时任务配置已变更，重建任务")
+        logger.info("[TASK] 定时任务配置已变更，重建任务")
         self._setup_jobs()
     
     def _setup_jobs(self):
         """设置定时任务"""
         if not self.scheduler:
-            logger.error("[SCHED] 调度器实例不存在，无法设置任务")
+            logger.error("[TASK] 调度器实例不存在，无法设置任务")
             return
             
         # 清除现有的所有任务
         if self.scheduler.running:
-            logger.debug("[SCHED] 清除现有的所有定时任务")
+            logger.debug("[TASK] 清除现有的所有定时任务")
             self.scheduler.remove_all_jobs()
         else:
-            logger.debug("[SCHED] 调度器未运行，不需要清除任务")
+            logger.debug("[TASK] 调度器未运行，不需要清除任务")
         
         # 添加合并后的定时任务（IP优选+更新hosts）
         cloudflare_config = self.config.get("cloudflare", {})
         if cloudflare_config.get("enable", True):
             cron_expr = cloudflare_config.get("cron", "0 0 * * *")  # 默认每天0点执行
-            logger.debug("[SCHED] 准备添加定时任务 定时=%s", cron_expr)
+            logger.debug("[TASK] 准备添加定时任务 定时=%s", cron_expr)
             
             try:
                 # 创建一个组合任务函数
                 def combined_task():
                     import time
                     task_start_time = time.time()
-                    logger.info("[TASK] 定时任务 阶段=开始 任务=定时执行")
                     # 更新任务状态
                     task_registry.start(TASK_NAME, "正在执行定时IP优选任务")
                     try:
@@ -96,7 +95,7 @@ class SchedulerService:
                         msg = status.get('message') if isinstance(status, dict) else ("定时IP优选任务完成" if ok else "定时IP优选任务失败")
                         task_registry.finish(TASK_NAME, msg)
                         task_duration = time.time() - task_start_time
-                        logger.info("[TASK] 定时任务 阶段=done 结果=成功 耗时=%s", int(task_duration * 1000))
+                        logger.info("[TASK] 定时任务完成 任务=IP优选与Hosts更新 结果=成功 耗时=%sms", int(task_duration * 1000))
                         
                         # 发送定时任务完成通知
                         try:
@@ -104,12 +103,12 @@ class SchedulerService:
                             logger.debug("[TASK] 定时任务通知 说明=%s", msg)
                             send_task_notify("IP优选与Hosts更新", msg)
                         except Exception as notify_e:
-                            logger.exception("[SCHED] 发送定时任务通知失败: %s", str(notify_e))
+                            logger.exception("[TASK] 发送定时任务通知失败: %s", str(notify_e))
                     except Exception as e:
                         error_msg = f"定时任务失败: {str(e)}"
                         task_registry.finish(TASK_NAME, error_msg)
                         task_duration = time.time() - task_start_time
-                        logger.error("[TASK] 定时任务 阶段=failed 耗时=%s", int(task_duration * 1000), exc_info=True)
+                        logger.error("[TASK] 定时任务完成 任务=IP优选与Hosts更新 结果=失败 耗时=%sms 错误=%s", int(task_duration * 1000), error_msg, exc_info=True)
                         
                         # 发送定时任务失败通知
                         try:
@@ -117,11 +116,7 @@ class SchedulerService:
                             logger.warning("[TASK] 定时任务通知 结果=失败 说明=%s", error_msg)
                             send_task_notify("IP优选与Hosts更新", error_msg)
                         except Exception as notify_e:
-                            logger.exception("[SCHED] 发送定时任务失败通知失败: %s", str(notify_e))
-                    finally:
-                        # 确保任务状态正确结束
-                        task_duration = time.time() - task_start_time
-                        logger.debug("[TASK] 定时任务 函数执行完毕 耗时=%s", int(task_duration * 1000))
+                            logger.exception("[TASK] 发送定时任务失败通知失败: %s", str(notify_e))
                 
                 self.scheduler.add_job(
                     combined_task,
@@ -132,11 +127,11 @@ class SchedulerService:
                     coalesce=True,  # 如果任务被延迟，合并执行
                     misfire_grace_time=300  # 如果错过执行时间，5分钟内仍可执行
                 )
-                logger.info('[SCHED] 已添加定时任务 定时="%s" 任务=IP优选与Hosts更新', cron_expr)
+                logger.info('[TASK] 已添加定时任务 定时="%s" 任务=IP优选与Hosts更新', cron_expr)
             except Exception as e:
-                logger.exception("[SCHED] 添加组合定时任务失败: %s", str(e))
+                logger.exception("[TASK] 添加组合定时任务失败: %s", str(e))
         else:
-            logger.info("[SCHED] 定时任务未添加 原因=优选功能已禁用")
+            logger.info("[TASK] 定时任务未添加 原因=定时任务已关闭")
     
     def start(self):
         """启动调度器"""
@@ -144,7 +139,7 @@ class SchedulerService:
             self._create_scheduler()
         if not self.scheduler.running:
             self.scheduler.start()
-            logger.info("[SCHED] 调度器已启动")
+            logger.info("[TASK] 调度器已启动")
     
     def stop(self):
         """停止调度器"""
@@ -152,7 +147,7 @@ class SchedulerService:
             if self.scheduler.running:
                 self.scheduler.shutdown(wait=False)
             self.scheduler = None
-            logger.info("[SCHED] 调度器已停止并清除")
+            logger.info("[TASK] 调度器已停止并清除")
     
     def is_running(self) -> bool:
         """检查调度器是否运行中"""

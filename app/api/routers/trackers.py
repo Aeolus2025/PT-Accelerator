@@ -28,11 +28,10 @@ async def add_tracker(
     force_cloudflare: bool = False
 ):
     try:
-        domain = tracker.get("domain", "")
-        if domain:
-            domain = re.sub(r"^https?://", "", domain, flags=re.IGNORECASE)
-            domain = domain.split("/")[0]
-            tracker["domain"] = domain
+        domain = domain_service.clean_domain(tracker.get("domain", ""))
+        tracker["domain"] = domain
+        if not domain_service.is_valid_domain(domain):
+            raise HTTPException(status_code=400, detail=f"域名格式不正确：{domain or '(空)'}")
         def _add(current):
             trackers = current.setdefault("trackers", [])
             if any(existing["domain"] == tracker["domain"] for existing in trackers):
@@ -59,10 +58,10 @@ async def add_tracker(
     except HTTPException as e:
         # 业务性拒绝（已存在、IP 不一致）记 WARNING
         log_op("添加Tracker", 目标=tracker.get("domain", ""), ok=False,
-               level=logging.WARNING, reason=e.detail)
+               level=logging.WARNING, 原因=e.detail)
         raise
     except Exception as e:
-        logger.exception("[TRACKER] 添加Tracker失败: %s", str(e))
+        logger.exception("[HOSTS] 添加Tracker失败: %s", str(e))
         log_op("添加Tracker", 目标=tracker.get("domain", ""), ok=False, 错误=str(e))
         raise HTTPException(status_code=500, detail=f"添加Tracker失败: {str(e)}")
 
@@ -99,7 +98,7 @@ async def delete_tracker(
         log_op("删除Tracker", 目标=domain, ok=False, level=logging.WARNING, 原因=e.detail)
         raise
     except Exception as e:
-        logger.exception("[TRACKER] 删除Tracker失败: %s", str(e))
+        logger.exception("[HOSTS] 删除Tracker失败: %s", str(e))
         log_op("删除Tracker", 目标=domain, ok=False, 错误=str(e))
         raise HTTPException(status_code=500, detail=f"删除Tracker失败: {str(e)}")
 
@@ -118,6 +117,17 @@ async def batch_add_domains(
         
         if not domains:
             return {"status": "warning", "message": "没有提供有效的域名"}
+
+        # 格式不对的先挡掉，否则后台探测要等 60 秒才判定失败
+        invalid = [d for d in domains if not domain_service.is_valid_domain(d)]
+        domains = [d for d in domains if domain_service.is_valid_domain(d)]
+        if not domains:
+            log_op("批量添加Tracker", ok=False, level=logging.WARNING,
+                   请求数=len(invalid), 原因="域名格式全部无效")
+            return {
+                "status": "warning",
+                "message": f"没有有效的域名，格式不正确：{','.join(invalid[:5])}",
+            }
         
         outcome = {}
 
@@ -144,7 +154,7 @@ async def batch_add_domains(
         config_store.mutate(_batch_add)
         if outcome.get("error"):
             log_op("批量添加Tracker", ok=False, level=logging.WARNING,
-                   请求数=len(domains), reason=outcome["error"])
+                   请求数=len(domains), 原因=outcome["error"])
             return {"status": "error", "message": outcome["error"]}
         added, skipped = outcome["added"], outcome["skipped"]
             
@@ -157,20 +167,22 @@ async def batch_add_domains(
         
         # 构建响应消息
         message = f"批量添加完成：成功添加 {len(added)} 个域名，跳过 {len(skipped)} 个已存在的域名"
+        if invalid:
+            message += f"；{len(invalid)} 个域名格式不正确已忽略：{','.join(invalid[:5])}"
         details = {
             "added": added,
             "skipped": skipped
         }
         
-        log_op("批量添加Tracker", 请求数=len(domains),
-               added=len(added), skipped=len(skipped))
+        log_op("批量添加Tracker", 请求数=len(domains) + len(invalid),
+               新增=len(added), 跳过=len(skipped), 格式无效=len(invalid))
         return {
             "status": "success", 
             "message": message,
             "details": details
         }
     except Exception as e:
-        logger.exception("[TRACKER] 批量添加域名失败: %s", str(e))
+        logger.exception("[HOSTS] 批量添加域名失败: %s", str(e))
         log_op("批量添加Tracker", ok=False, 错误=str(e))
         return {"status": "error", "message": f"批量添加域名失败: {str(e)}"}
 
@@ -188,7 +200,7 @@ async def clear_all_trackers(
         log_op("清空Tracker")
         return {"message": "已清空所有tracker并同步更新hosts"}
     except Exception as e:
-        logger.exception("[TRACKER] 清空所有tracker失败: %s", str(e))
+        logger.exception("[HOSTS] 清空所有tracker失败: %s", str(e))
         log_op("清空Tracker", ok=False, 错误=str(e))
         raise HTTPException(status_code=500, detail=f"清空所有tracker失败: {str(e)}")
 

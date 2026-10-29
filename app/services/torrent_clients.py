@@ -1,7 +1,6 @@
 import logging
 import requests
 from typing import List, Dict, Any, Optional
-import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -42,14 +41,12 @@ class QBittorrentClient(TorrentClientBase):
     """qBittorrent客户端 - 支持 API Key(5.2+) 与 用户名密码/SID 两种认证"""
     def __init__(self, host: str, port: int, username: str, password: str, use_https: bool = False, api_key: Optional[str] = None):
         super().__init__(host, port, username, password, use_https, api_key)
-        logger.debug("[CLIENT] 初始化qBittorrent客户端: %s:%s, 使用HTTPS: %s", host, port, use_https)
         self.api_url = f"{self.base_url}/api/v2"
-        logger.debug("[CLIENT] qBittorrent API URL: %s", self.api_url)
         if self.api_key:
             # 不打印密钥本身，只打印长度
-            logger.debug("[CLIENT] qBittorrent认证方式: API Key(长度 %s)", len(self.api_key))
+            logger.debug("[CLIENT] qBittorrent认证方式: API Key")
         else:
-            logger.debug("[CLIENT] qBittorrent认证方式: 用户名/密码, 用户名: %s, 密码长度: %s", username, len(password) if password else 0)
+            logger.debug("[CLIENT] qBittorrent认证方式: 用户名/密码")
     
     def _apply_auth_headers(self) -> None:
         """API Key 模式下为会话注入 Authorization: Bearer 头"""
@@ -83,8 +80,7 @@ class QBittorrentClient(TorrentClientBase):
                 return False
         except Exception as e:
             error_msg = f"qBittorrent登录异常: {type(e).__name__}: {str(e)}"
-            logger.exception(error_msg)
-            logger.debug(traceback.format_exc())
+            logger.exception("[CLIENT] %s", error_msg)
             return False
     
     def test_connection(self) -> Dict[str, Any]:
@@ -135,22 +131,21 @@ class QBittorrentClient(TorrentClientBase):
                 }
         except requests.exceptions.Timeout:
             error_msg = f"qBittorrent连接超时: {self.host}:{self.port}"
-            logger.exception(error_msg)
+            logger.exception("[CLIENT] %s", error_msg)
             return {
                 "success": False,
                 "message": error_msg
             }
         except requests.exceptions.ConnectionError as e:
             error_msg = f"qBittorrent连接错误: {str(e)}"
-            logger.exception(error_msg)
+            logger.exception("[CLIENT] %s", error_msg)
             return {
                 "success": False,
                 "message": error_msg
             }
         except Exception as e:
             error_msg = f"测试qBittorrent连接异常: {type(e).__name__}: {str(e)}"
-            logger.exception(error_msg)
-            logger.debug(traceback.format_exc())
+            logger.exception("[CLIENT] %s", error_msg)
             return {
                 "success": False,
                 "message": error_msg
@@ -202,7 +197,6 @@ class QBittorrentClient(TorrentClientBase):
             return list(tracker_urls)
         except Exception as e:
             logger.exception("[CLIENT] 获取qBittorrent Tracker列表异常: %s: %s", type(e).__name__, str(e))
-            logger.debug(traceback.format_exc())
             return []
 
 
@@ -212,6 +206,10 @@ class TransmissionClient(TorrentClientBase):
         super().__init__(host, port, username, password, use_https)
         self.rpc_url = f"{self.base_url}{path}"
         self.session_id = None
+        if self.username or self.password:
+            logger.debug("[CLIENT] Transmission认证方式: 用户名/密码")
+        else:
+            logger.debug("[CLIENT] Transmission认证方式: 无认证")
     
     def _get_session_id(self) -> bool:
         """获取Transmission会话ID"""
@@ -422,26 +420,42 @@ class TorrentClientManager:
         self.config = config
         self._init_clients()
     
+    def client_name(self, client_id: Optional[str]) -> str:
+        """日志里用的下载器标识：优先名称，找不到时回退 id。
+
+        id 是内部主键（qb_default、qbittorrent_1761700123456_427），
+        直接打在日志里认不出是哪个下载器。
+        """
+        if not client_id:
+            return ""
+        info = self.clients.get(client_id)
+        if info:
+            return info["config"].get("name") or client_id
+        return client_id
+
     def test_client_connection(self, client_id: str) -> Dict[str, Any]:
         """测试指定客户端连接"""
-        logger.debug("[CLIENT] 正在测试客户端连接: %s", client_id)
-        logger.debug("[CLIENT] 当前已初始化的客户端列表: %s", list(self.clients.keys()))
+        label = self.client_name(client_id)
+        logger.debug("[CLIENT] 正在测试客户端连接: %s", label)
+        logger.debug("[CLIENT] 当前已初始化的客户端列表: %s",
+                     [self.client_name(key) for key in self.clients])
         
         client_info = self.clients.get(client_id)
         if not client_info:
-            logger.error("[CLIENT] 未找到客户端: %s, 可用客户端: %s", client_id, list(self.clients.keys()))
+            logger.error("[CLIENT] 未找到客户端: %s, 可用客户端: %s", label,
+                         [self.client_name(key) for key in self.clients])
             return {
                 "success": False,
-                "message": f"未找到客户端: {client_id}, 可能尚未保存或未启用"
+                "message": f"未找到客户端: {label}, 可能尚未保存或未启用"
             }
         
         try:
-            logger.debug("[CLIENT] 开始测试客户端 %s 的连接", client_id)
+            logger.debug("[CLIENT] 开始测试客户端 %s 的连接", label)
             result = client_info["client"].test_connection()
-            logger.info("[CLIENT] 客户端 %s 测试结果: %s", client_id, result)
+            logger.info("[CLIENT] 客户端 %s 测试结果: %s", label, result)
             return result
         except Exception as e:
-            logger.exception("[CLIENT] 测试客户端连接失败: %s - %s", client_id, str(e))
+            logger.exception("[CLIENT] 测试客户端连接失败: %s - %s", label, str(e))
             return {
                 "success": False,
                 "message": f"测试连接失败: {str(e)}"
@@ -499,7 +513,7 @@ class TorrentClientManager:
                 logger.info("[CLIENT] 从 %s 获取到 %s 个Tracker", client_name, len(trackers))
                 all_trackers.update(trackers)
             except Exception as e:
-                logger.exception("[CLIENT] 从客户端 %s 获取Tracker失败: %s", client_id, str(e))
+                logger.exception("[CLIENT] 从客户端 %s 获取Tracker失败: %s", client_name, str(e))
         
         return list(all_trackers)
     

@@ -77,7 +77,7 @@ def _log_print(text, *args, **kw):
         combined = " ".join(parts)
         _notify_log(combined)
     except Exception:
-        logger.info(str(text))
+        logger.info("[NOTIFY] %s", text)
 
 
 # 发送等待与外部请求的超时上限

@@ -77,6 +77,23 @@ class HostsManager:
         """判断域名是否为 Cloudflare 站点。"""
         return self.detector.is_cloudflare_domain(domain)
 
+    def _judge_trackers(self) -> Dict[str, bool]:
+        """一次判定所有 tracker 域名是否属于 Cloudflare，返回 {域名: 是否}。
+
+        同一轮更新里「改 tracker IP」「剔除无效域名」「收集 hosts 条目」都要用这份结论，
+        各判一次会让同一批域名被反复探测，日志也会重复。只判启用的 tracker。
+        """
+        result: Dict[str, bool] = {}
+        for tracker in self._config().get("trackers") or []:
+            domain = tracker.get("domain")
+            # 已禁用的不参与判定：无效域名每轮都探测一次要 60 秒以上
+            if not domain or not tracker.get("enable"):
+                continue
+            clean_domain = _strip_port(domain)
+            if clean_domain not in result:
+                result[clean_domain] = self.detector.is_cloudflare_domain(clean_domain)
+        return result
+
     def _merge_write_config(self, partial_update: Dict[str, Any]):
         """将局部更新安全合并写回 config/config.yaml，避免覆盖其它未修改配置"""
         try:
@@ -92,7 +109,7 @@ class HostsManager:
         """
         return config_store.read(CONFIG_PATH)
 
-    def _collect_pt_entries(self) -> List[str]:
+    def _collect_pt_entries(self, cf_map: Optional[Dict[str, bool]] = None) -> List[str]:
         """收集PT站点的条目（已优化：不再检测IP连通性，直接写入，但严格过滤非Cloudflare站点）"""
         entries = []
         # 如果有优选的IP，使用该IP，否则使用配置中的IP
@@ -109,8 +126,10 @@ class HostsManager:
                 # 移除端口号再检测
                 clean_domain = domain.split(':')[0] if ':' in domain else domain
                 
-                # 严格检查是否为Cloudflare站点
-                is_cf = self.detector.is_cloudflare_domain(clean_domain)
+                # 同一轮已经判过就直接用；只有中途新增的域名才现场判定
+                is_cf = (cf_map or {}).get(clean_domain)
+                if is_cf is None:
+                    is_cf = self.detector.is_cloudflare_domain(clean_domain)
                 
                 if is_cf:
                     ip = tracker.get("ip") or cloudflare_ip
@@ -129,10 +148,11 @@ class HostsManager:
 
     # ---------------------------------------------------------- 两条入口共用的步骤
 
-    def _filter_non_cloudflare_trackers(self):
-        """剔除不是 Cloudflare 的 tracker 并写回配置，返回保留下来的列表。
+    def _filter_non_cloudflare_trackers(self, cf_map: Optional[Dict[str, bool]] = None):
+        """把不是 Cloudflare 的 tracker 置为禁用，返回保留下来的列表。
 
-        历史遗留的非 CF 域名留在配置里会让监控一直失败，所以每次更新都顺手清掉。
+        不删配置：域名可能只是临时解析失败，删掉等于替用户做决定。
+        禁用后既不参与 hosts 写入，也不会再被探测。
         """
         trackers = self._config().get("trackers") or []
         if not trackers:
@@ -142,29 +162,29 @@ class HostsManager:
         kept, dropped, dropped_keys = [], [], set()
         for tracker in trackers:
             domain = tracker.get("domain")
-            if not domain:
+            if not domain or not tracker.get("enable"):
                 continue
             clean_domain = _strip_port(domain)
-            if self.detector.is_cloudflare_domain(clean_domain):
+            is_cf = (cf_map or {}).get(clean_domain)
+            if is_cf is None:
+                is_cf = self.detector.is_cloudflare_domain(clean_domain)
+            if is_cf:
                 kept.append(tracker)
             else:
                 dropped.append(domain)
                 dropped_keys.add(clean_domain)
 
         if dropped:
-            logger.info("[HOSTS] 历史清理 数量=%s 域名=%s", len(dropped), ",".join(dropped))
+            logger.warning("[HOSTS] 非Cloudflare域名已禁用 数量=%s 域名=%s",
+                           len(dropped), ",".join(dropped))
 
-            # 只按锁内最新列表剔除被判定的域名：检测期间新加的 tracker 不能被旧快照覆盖掉
+            # 只动锁内最新列表里被判定的域名：检测期间新加的 tracker 不能被旧快照覆盖
             def _apply(current):
-                items = current.get("trackers") or []
-                current["trackers"] = [
-                    t for t in items
-                    if _strip_port(t.get("domain") or "") not in dropped_keys
-                ]
+                for item in current.get("trackers") or []:
+                    if _strip_port(item.get("domain") or "") in dropped_keys:
+                        item["enable"] = False
 
             config_store.mutate(_apply)
-            logger.info("[HOSTS] 历史清理已写回配置 移除数=%s", len(dropped))
-            kept = [t for t in kept if _strip_port(t.get("domain") or "") not in dropped_keys]
         return kept
 
     def _collect_source_candidates(self):
@@ -181,7 +201,7 @@ class HostsManager:
         }
         merged_enabled = self._is_merged_hosts_enabled()
         if not merged_enabled:
-            logger.debug("[MergedHosts] 当前没有启用的 hosts 源，跳过来源收集与历史兜底")
+            logger.debug("[HOSTS] 当前没有启用的 hosts 源，跳过来源收集与历史兜底")
         self._prune_domain_ip_history()
 
         candidates: Dict[str, set] = {}
@@ -196,14 +216,14 @@ class HostsManager:
                 if s.get("enable") and s.get("url") and s.get("name")
             ]
             if hosts_sources:
-                logger.debug("[MergedHosts] 开始处理 %s 个外部hosts源", len(hosts_sources))
+                logger.debug("[HOSTS] 开始处理 %s 个外部hosts源", len(hosts_sources))
             for i, source in enumerate(hosts_sources):
                 source_name = source.get("name", "未命名源")
                 task_registry.start(TASK_NAME, f"正在处理hosts源 ({i+1}/{len(hosts_sources)}): {source_name}")
                 started = time.time()
-                logger.debug("[MergedHosts] 处理源 %s/%s 名称=%s", i + 1, len(hosts_sources), source_name)
+                logger.debug("[HOSTS] 处理源 %s/%s 名称=%s", i + 1, len(hosts_sources), source_name)
                 entries = self.sources._fetch_hosts_source(source["url"])
-                logger.debug("[MergedHosts] 源完成 名称=%s 条目=%s 耗时=%s",
+                logger.debug("[HOSTS] 源完成 名称=%s 条目=%s 耗时=%s",
                              source_name, len(entries), int((time.time() - started) * 1000))
                 for ip, domain in entries:
                     if skip(domain):
@@ -222,14 +242,14 @@ class HostsManager:
             backup = self._load_merged_hosts_backup()
             for lost_domain in set(backup) - current_domains:
                 if not self._can_keep_lost_domain(lost_domain):
-                    logger.debug("[MergedHosts] 兜底跳过 域名=%s 原因=不满足条件", lost_domain)
+                    logger.debug("[HOSTS] 兜底跳过 域名=%s 原因=不满足条件", lost_domain)
                     continue
                 lost_ip = backup[lost_domain]
                 if self.detector._dns_check(lost_domain, lost_ip):
                     candidates.setdefault(lost_domain, set()).add(lost_ip)
-                    logger.warning("[兜底保留] 域名 %s 本次未被任何源收录，但DNS检测有效，保留上次IP: %s", lost_domain, lost_ip)
+                    logger.warning("[HOSTS] 兜底保留 域名=%s 原因=本次未被任何源收录 保留IP=%s", lost_domain, lost_ip)
                 else:
-                    logger.warning("[兜底丢弃] 域名 %s 本次未被任何源收录，且DNS检测无效，丢弃上次IP: %s", lost_domain, lost_ip)
+                    logger.warning("[HOSTS] 兜底丢弃 域名=%s 原因=本次未被任何源收录且DNS无效 丢弃IP=%s", lost_domain, lost_ip)
 
         return candidates, merged_enabled
 
@@ -291,10 +311,6 @@ class HostsManager:
 
         total_entries = sum(len(entries) for _, entries, _ in sections)
         elapsed = int((time.perf_counter() - started) * 1000)
-        logger.info(
-            "[HOSTS] 写入 路径=%s 条目=%s 分区=%s 耗时=%sms",
-            self._hosts_path(), total_entries, len(sections), elapsed,
-        )
         return total_entries
 
     def _save_backup(self, merged_ips: Dict[str, str], merged_enabled: bool):
@@ -333,9 +349,10 @@ class HostsManager:
         logger.info("[TASK] 更新Hosts 阶段=开始")
 
         try:
-            self._filter_non_cloudflare_trackers()
+            cf_map = self._judge_trackers()
+            self._filter_non_cloudflare_trackers(cf_map)
 
-            pt_entries = self._collect_pt_entries()
+            pt_entries = self._collect_pt_entries(cf_map)
             candidates, merged_enabled = self._collect_source_candidates()
             merged_ips, log_lines = self._pick_best_ip(candidates)
 
@@ -345,7 +362,7 @@ class HostsManager:
 
             # 逐条优选结果只在 DEBUG 下看
             for line in log_lines:
-                logger.debug("[MergedHosts] %s", line)
+                logger.debug("[HOSTS] %s", line)
             elapsed = int((time.perf_counter() - started) * 1000)
             logger.info(
                 "[TASK] 更新Hosts 阶段=完成 PT条目=%s 合并条目=%s 合计=%s 耗时=%sms",
@@ -356,7 +373,7 @@ class HostsManager:
             return True
         except Exception as e:
             error_msg = f"更新hosts文件失败: {str(e)}"
-            logger.error(error_msg, exc_info=True)
+            logger.error("[HOSTS] %s", error_msg, exc_info=True)
             task_registry.finish(TASK_NAME, error_msg)
             return False
 
@@ -460,24 +477,25 @@ class HostsManager:
                     script_path = "cfst_linux_arm64/cfst_hosts.sh"
                 else:
                     script_path = "cfst_linux_amd64/cfst_hosts.sh"
-            logger.info("[TASK] 运行IP优选 阶段=start")
+            logger.info("[TASK] 运行IP优选 阶段=开始")
 
             best_ip = self._run_cfst_script(script_path)
             if not best_ip:
                 return False  # _run_cfst_script 已写好失败状态
 
             self.best_cloudflare_ip = best_ip
-            logger.info("[TASK] 运行IP优选 阶段=best_ip IP=%s", best_ip)
+            logger.info("[TASK] 运行IP优选 阶段=筛选最优IP IP=%s", best_ip)
 
-            updated_count = self._apply_ip_to_trackers(best_ip)
+            cf_map = self._judge_trackers()
+            updated_count = self._apply_ip_to_trackers(best_ip, cf_map)
 
-            pt_entries = self._collect_pt_entries()
+            pt_entries = self._collect_pt_entries(cf_map)
             candidates, merged_enabled = self._collect_source_candidates()
             merged_ips, log_lines = self._pick_best_ip(candidates)
             total_entries = self._write_hosts_sections(pt_entries, merged_ips, merged_enabled)
 
             for line in log_lines:
-                logger.debug("[MergedHosts] %s", line)
+                logger.debug("[HOSTS] %s", line)
             self._save_backup(merged_ips, merged_enabled)
 
             task_registry.finish(
@@ -485,11 +503,11 @@ class HostsManager:
                 f"Cloudflare优选完成！IP: {best_ip}，已更新 {updated_count} 个Tracker和 {total_entries} 条hosts记录",
             )
             self.task_running = False
-            logger.info("[TASK] 运行IP优选 阶段=done 结果=成功")
+            logger.info("[TASK] 运行IP优选 阶段=完成 结果=成功")
             return True
         except Exception as e:
             error_msg = f"严格串行流程执行失败: {str(e)}"
-            logger.error(error_msg, exc_info=True)
+            logger.error("[TASK] %s", error_msg, exc_info=True)
             task_registry.finish(TASK_NAME, error_msg)
             self.task_running = False
             return False
@@ -523,7 +541,6 @@ class HostsManager:
             self.task_running = False
             return None
 
-        logger.debug("[CFST] 脚本输出 长度=%s", len(result.stdout or ""))
         # 优先读脚本落盘的结果文件，比自己解析中文 stdout 可靠得多
         best_ip = self._read_best_ip_from_result(script_path)
         if not best_ip:
@@ -533,8 +550,11 @@ class HostsManager:
             return None
         return best_ip
 
-    def _apply_ip_to_trackers(self, best_ip: str) -> int:
-        """把优选到的 IP 写进所有 Cloudflare tracker，返回更新条数。"""
+    def _apply_ip_to_trackers(self, best_ip: str, cf_map: Optional[Dict[str, bool]] = None) -> int:
+        """把优选到的 IP 写进所有 Cloudflare tracker，返回更新条数。
+
+        判定不是 Cloudflare 的置为禁用，不从配置里删除。
+        """
         trackers = self._config().get("trackers") or []
         if not trackers:
             return 0
@@ -543,34 +563,34 @@ class HostsManager:
         cf_keys, dropped = set(), []
         for tracker in trackers:
             domain = tracker.get("domain")
-            if not domain:
+            if not domain or not tracker.get("enable"):
                 continue
             clean_domain = _strip_port(domain)
-            if self.detector.is_cloudflare_domain(clean_domain):
+            is_cf = (cf_map or {}).get(clean_domain)
+            if is_cf is None:
+                is_cf = self.detector.is_cloudflare_domain(clean_domain)
+            if is_cf:
                 cf_keys.add(clean_domain)
             else:
                 dropped.append(domain)
 
         if dropped:
-            logger.info("[HOSTS] 优选过滤非Cloudflare站点 数量=%s 域名=%s",
-                        len(dropped), ",".join(dropped))
+            logger.warning("[HOSTS] 非Cloudflare域名已禁用 数量=%s 域名=%s",
+                           len(dropped), ",".join(dropped))
 
         dropped_keys = {_strip_port(d) for d in dropped}
         updated = 0
 
         def _apply(current):
             nonlocal updated
-            items = current.get("trackers") or []
-            result = []
-            for tracker in items:
+            for tracker in current.get("trackers") or []:
                 key = _strip_port(tracker.get("domain") or "")
                 if key in dropped_keys:
-                    continue
-                if key in cf_keys:
+                    # 判定不是 Cloudflare：禁用而不是从配置里删掉
+                    tracker["enable"] = False
+                elif key in cf_keys:
                     tracker["ip"] = best_ip
                     updated += 1
-                result.append(tracker)
-            current["trackers"] = result
 
         config_store.mutate(_apply)
         logger.info("[HOSTS] tracker 批量更新IP 数量=%s IP=%s", updated, best_ip)

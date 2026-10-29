@@ -53,7 +53,7 @@ class CloudflareDetector:
     def is_cloudflare_domain(self, domain: str) -> bool:
         """判断域名是否使用了Cloudflare"""
         if not domain:
-            logger.debug("[Cloudflare检测] 域名为空，返回False")
+            logger.debug("[CF] 域名为空，返回False")
             return False
         
         # 规范化域名，移除协议前缀、路径后缀和端口号
@@ -68,10 +68,10 @@ class CloudflareDetector:
             cache_time, is_cf = self.cloudflare_cache[domain]
             # 检查缓存是否过期
             if current_time - cache_time < self.cache_expiry:
-                logger.debug("[Cloudflare检测] 域名 %s 使用缓存结果: %s", domain, is_cf)
+                logger.debug("[CF] 域名 %s 使用缓存结果: %s", domain, is_cf)
                 return is_cf
         
-        logger.debug("[Cloudflare检测] 开始检测域名: %s", domain)
+        logger.debug("[CF] 开始检测域名: %s", domain)
         
         # 获取配置中的Cloudflare域名
         cf_domains_from_config = self._config().get('cloudflare_domains', [])
@@ -82,77 +82,76 @@ class CloudflareDetector:
         
         # 1. 检查域名是否在白名单中
         if domain in self.cf_domains:
-            logger.debug("[Cloudflare检测] 域名 %s 在配置的Cloudflare域名白名单中", domain)
+            logger.debug("[CF] 域名 %s 在配置的Cloudflare域名白名单中", domain)
             self._cache_cloudflare_result(domain, True)
             return True
         
         # 2. 检查主域名
         main_domain = self._get_main_domain(domain)
         if main_domain in self.cf_domains:
-            logger.debug("[Cloudflare检测] 域名 %s 的主域名 %s 在Cloudflare域名白名单中", domain, main_domain)
+            logger.debug("[CF] 域名 %s 的主域名 %s 在Cloudflare域名白名单中", domain, main_domain)
             self._cache_cloudflare_result(domain, True)
             return True
         
         # 3. 检查IP范围
         try:
             ip = socket.gethostbyname(domain)
-            logger.debug("[Cloudflare检测] 域名 %s 解析到IP: %s", domain, ip)
+            logger.debug("[CF] 域名 %s 解析到IP: %s", domain, ip)
             if self._is_cloudflare_ip(ip):
-                logger.debug("[Cloudflare检测] 域名 %s 解析到Cloudflare IP范围: %s", domain, ip)
                 self._cache_cloudflare_result(domain, True)
                 return True
             else:
-                logger.debug("[Cloudflare检测] 域名 %s 解析到非Cloudflare IP: %s", domain, ip)
+                logger.debug("[CF] 域名 %s 解析到非Cloudflare IP: %s", domain, ip)
         except socket.error as e:
-            logger.debug("[Cloudflare检测] 域名 %s 解析IP失败: %s", domain, str(e))
+            logger.debug("[CF] 域名 %s 解析IP失败: %s", domain, str(e))
         
         # 4. 检查DNS CNAME记录
-        logger.debug("[Cloudflare检测] 开始CNAME记录检查: %s", domain)
+        logger.debug("[CF] 开始CNAME记录检查: %s", domain)
         is_cf_by_cname = self._check_cloudflare_by_cname(domain)
         if is_cf_by_cname:
-            logger.debug("[Cloudflare检测] 域名 %s 通过CNAME记录确认使用Cloudflare", domain)
+            logger.debug("[CF] 域名 %s 通过CNAME记录确认使用Cloudflare", domain)
             self._cache_cloudflare_result(domain, True)
             return True
         
         # 5. 检查HTTP头部
-        logger.debug("[Cloudflare检测] 开始HTTP头部检查: %s", domain)
+        logger.debug("[CF] 开始HTTP头部检查: %s", domain)
         is_cf_by_headers = self._check_cloudflare_by_headers(domain)
         if is_cf_by_headers:
-            logger.debug("[Cloudflare检测] 域名 %s 通过HTTP头部确认使用Cloudflare", domain)
+            logger.debug("[CF] 域名 %s 通过HTTP头部确认使用Cloudflare", domain)
             self._cache_cloudflare_result(domain, True)
             return True
         
         # 6. 使用HTTP请求方法检测
-        logger.debug("[Cloudflare检测] 开始HTTP请求方法检查: %s", domain)
+        logger.debug("[CF] 开始HTTP请求方法检查: %s", domain)
         is_cf_by_http = self._check_cloudflare_by_http(domain)
         if is_cf_by_http:
-            logger.debug("[Cloudflare检测] 域名 %s 通过HTTP请求内容确认使用Cloudflare", domain)
+            logger.debug("[CF] 域名 %s 通过HTTP请求内容确认使用Cloudflare", domain)
             self._cache_cloudflare_result(domain, True)
             return True
         
         # 7. 使用多个DNS服务器进行验证
-        logger.debug("[Cloudflare检测] 开始多DNS服务器验证: %s", domain)
+        logger.debug("[CF] 开始多DNS服务器验证: %s", domain)
         is_cf_by_multi_dns = self._check_cloudflare_by_multi_dns(domain)
         if is_cf_by_multi_dns:
-            logger.debug("[Cloudflare检测] 域名 %s 通过多DNS服务器确认使用Cloudflare", domain)
+            logger.debug("[CF] 域名 %s 通过多DNS服务器确认使用Cloudflare", domain)
             self._cache_cloudflare_result(domain, True)
             return True
         
         # 8. 最后尝试直接解析
-        logger.debug("[Cloudflare检测] 开始最后IP解析尝试: %s", domain)
+        logger.debug("[CF] 开始最后IP解析尝试: %s", domain)
         try:
             for attempt in range(2):  # 尝试两次，增加可靠性
                 ip = socket.gethostbyname(domain)
-                logger.debug("[Cloudflare检测] 域名 %s 最终解析尝试 #%s, IP: %s", domain, attempt+1, ip)
+                logger.debug("[CF] 域名 %s 最终解析尝试 #%s, IP: %s", domain, attempt+1, ip)
                 if self._is_cloudflare_ip(ip):
-                    logger.debug("[Cloudflare检测] 域名 %s 最终解析确认使用Cloudflare IP: %s", domain, ip)
+                    logger.debug("[CF] 域名 %s 最终解析确认使用Cloudflare IP: %s", domain, ip)
                     self._cache_cloudflare_result(domain, True)
                     return True
                 time.sleep(0.5)  # 短暂延迟后再次尝试
         except socket.error as e:
-            logger.debug("[Cloudflare检测] 域名 %s 最终解析失败: %s", domain, str(e))
+            logger.debug("[CF] 域名 %s 最终解析失败: %s", domain, str(e))
         
-        logger.debug("[Cloudflare检测] 域名 %s 通过所有检测方法均未确认使用Cloudflare", domain)
+        logger.info("[CF] 通过所有检测方法均未确认此域名 %s 使用Cloudflare", domain)
         self._cache_cloudflare_result(domain, False)
         return False
 
@@ -203,12 +202,12 @@ class CloudflareDetector:
                     # 检查CNAME是否指向Cloudflare
                     cf_indicators = ['cloudflare', 'cdn', 'cdnproviders', 'ssl', 'workers.dev', 'pages.dev']
                     if any(indicator in cname for indicator in cf_indicators):
-                        logger.debug("[Cloudflare检测] 域名 %s 的CNAME指向Cloudflare: %s", domain, cname)
+                        logger.debug("[CF] 域名 %s 的CNAME指向Cloudflare: %s", domain, cname)
                         return True
             except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.Timeout, dns.exception.DNSException) as e:
-                logger.debug("[Cloudflare检测] CNAME解析失败: %s, 错误: %s", domain, str(e))
+                logger.debug("[CF] CNAME解析失败: %s, 错误: %s", domain, str(e))
         except ImportError:
-            logger.debug("[Cloudflare检测] dns.resolver模块不可用")
+            logger.debug("[CF] dns.resolver模块不可用")
         
         return False
 
@@ -238,27 +237,27 @@ class CloudflareDetector:
                         
                         for cf_header in cf_headers:
                             if cf_header in resp.headers:
-                                logger.debug("[Cloudflare检测] 域名 %s 的HTTP响应头包含Cloudflare标识: %s", domain, cf_header)
+                                logger.debug("[CF] 域名 %s 的HTTP响应头包含Cloudflare标识: %s", domain, cf_header)
                                 return True
                         
                         # 检查Server头
                         server = resp.headers.get('Server', '').lower()
                         if 'cloudflare' in server:
-                            logger.debug("[Cloudflare检测] 域名 %s 的Server头指示Cloudflare: %s", domain, server)
+                            logger.debug("[CF] 域名 %s 的Server头指示Cloudflare: %s", domain, server)
                             return True
                         
                         # 检查Set-Cookie头
                         cookies = resp.headers.get('Set-Cookie', '').lower()
                         if any(cookie in cookies for cookie in ['__cfduid', 'cf_clearance', 'cf_use_ob']):
-                            logger.debug("[Cloudflare检测] 域名 %s 的Cookie包含Cloudflare标识", domain)
+                            logger.debug("[CF] 域名 %s 的Cookie包含Cloudflare标识", domain)
                             return True
                     except Exception as e:
-                        logger.debug("[Cloudflare检测] %s请求失败: %s, 错误: %s", protocol, domain, str(e))
+                        logger.debug("[CF] %s请求失败: %s, 错误: %s", protocol, domain, str(e))
                         continue
             except Exception as e:
-                logger.debug("[Cloudflare检测] HTTP请求异常: %s", str(e))
+                logger.debug("[CF] HTTP请求异常: %s", str(e))
         except ImportError:
-            logger.debug("[Cloudflare检测] requests模块不可用")
+            logger.debug("[CF] requests模块不可用")
         
         return False
 
@@ -281,7 +280,7 @@ class CloudflareDetector:
                         answers = resolver.resolve(domain, 'A')
                         return [str(rdata) for rdata in answers]
                     except Exception as e:
-                        logger.debug("[Cloudflare检测] DNS %s 解析失败: %s", dns_server, str(e))
+                        logger.debug("[CF] DNS %s 解析失败: %s", dns_server, str(e))
                         return []
                 
                 with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
@@ -292,30 +291,30 @@ class CloudflareDetector:
                             ips = future.result()
                             for ip in ips:
                                 if self._is_cloudflare_ip(ip):
-                                    logger.debug("[Cloudflare检测] 通过DNS %s 解析到Cloudflare IP: %s", dns_server, ip)
+                                    logger.debug("[CF] 通过DNS %s 解析到Cloudflare IP: %s", dns_server, ip)
                                     return True
                         except Exception as e:
-                            logger.debug("[Cloudflare检测] 处理DNS %s 结果时出错: %s", dns_server, str(e))
+                            logger.debug("[CF] 处理DNS %s 结果时出错: %s", dns_server, str(e))
             except ImportError:
-                logger.debug("[Cloudflare检测] dns.resolver或concurrent.futures模块不可用")
+                logger.debug("[CF] dns.resolver或concurrent.futures模块不可用")
                 
                 # 备用方案：使用socket直接解析
                 try:
                     ip = socket.gethostbyname(domain)
                     if self._is_cloudflare_ip(ip):
-                        logger.debug("[Cloudflare检测] 使用socket直接解析到Cloudflare IP: %s", ip)
+                        logger.debug("[CF] 使用socket直接解析到Cloudflare IP: %s", ip)
                         return True
                 except socket.error:
                     pass
         except Exception as e:
-            logger.debug("[Cloudflare检测] 多DNS检测异常: %s", str(e))
+            logger.debug("[CF] 多DNS检测异常: %s", str(e))
         
         return False
 
     def _is_cloudflare_ip(self, ip: str) -> bool:
         """判断IP是否属于Cloudflare"""
         if not ip:
-            logger.debug("[Cloudflare检测] IP为空")
+            logger.debug("[CF] IP为空")
             return False
             
         try:
@@ -339,17 +338,17 @@ class CloudflareDetector:
                 for ip_range in cf_ip_ranges:
                     try:
                         if ip_obj in ipaddress.ip_network(ip_range):
-                            logger.debug("[Cloudflare检测] IP %s 属于Cloudflare IP范围 %s", ip, ip_range)
+                            logger.debug("[CF] IP %s 属于Cloudflare IP范围 %s", ip, ip_range)
                             return True
                     except ValueError as e:
-                        logger.debug("[Cloudflare检测] 检查IP范围出错: %s, 错误: %s", ip_range, str(e))
+                        logger.debug("[CF] 检查IP范围出错: %s, 错误: %s", ip_range, str(e))
                         continue
                 
                 # 未匹配到任何范围
-                logger.debug("[Cloudflare检测] IP %s 不在任何已知的Cloudflare IP范围内", ip)
+                logger.debug("[CF] IP %s 不在任何已知的Cloudflare IP范围内", ip)
                 
             except ImportError:
-                logger.debug("[Cloudflare检测] ipaddress模块不可用，使用基本检查")
+                logger.debug("[CF] ipaddress模块不可用，使用基本检查")
                 
                 # 如果ipaddress模块不可用，至少检查一些常见的范围
                 cf_prefixes = [
@@ -360,20 +359,20 @@ class CloudflareDetector:
                 
                 for prefix in cf_prefixes:
                     if ip.startswith(prefix):
-                        logger.debug("[Cloudflare检测] IP %s 匹配Cloudflare前缀 %s", ip, prefix)
+                        logger.debug("[CF] IP %s 匹配Cloudflare前缀 %s", ip, prefix)
                         return True
                 
-                logger.debug("[Cloudflare检测] IP %s 不匹配任何已知的Cloudflare前缀", ip)
+                logger.debug("[CF] IP %s 不匹配任何已知的Cloudflare前缀", ip)
                 
         except Exception as e:
-            logger.debug("[Cloudflare检测] IP检查异常: %s", str(e))
+            logger.debug("[CF] IP检查异常: %s", str(e))
         
         return False
 
     def _check_cloudflare_by_cf_ray(self, domain: str) -> bool:
         """通过检查响应头中的CF-Ray字段判断域名是否使用Cloudflare"""
         try:
-            logger.debug("[Cloudflare检测] 使用CF-Ray标头检查域名 %s", domain)
+            logger.debug("[CF] 使用CF-Ray标头检查域名 %s", domain)
             
             # 禁用SSL不安全请求的警告
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -394,28 +393,28 @@ class CloudflareDetector:
                     
                     # 检查CF-Ray头部
                     if 'CF-Ray' in response.headers:
-                        logger.debug("[Cloudflare检测] 域名 %s 响应包含CF-Ray头: %s", domain, response.headers.get('CF-Ray'))
+                        logger.debug("[CF] 域名 %s 响应包含CF-Ray头: %s", domain, response.headers.get('CF-Ray'))
                         return True
                         
                     # 检查其他Cloudflare特有的头部
                     cf_headers = ['cf-cache-status', 'cf-apo-via', 'cf-edge-cache', 'cf-bgj']
                     for header in cf_headers:
                         if header in response.headers:
-                            logger.debug("[Cloudflare检测] 域名 %s 响应包含Cloudflare特有头: %s", domain, header)
+                            logger.debug("[CF] 域名 %s 响应包含Cloudflare特有头: %s", domain, header)
                             return True
                             
                     # 检查服务器信息
                     server = response.headers.get('Server', '').lower()
                     if 'cloudflare' in server:
-                        logger.debug("[Cloudflare检测] 域名 %s 服务器信息包含Cloudflare: %s", domain, server)
+                        logger.debug("[CF] 域名 %s 服务器信息包含Cloudflare: %s", domain, server)
                         return True
                         
                 except requests.RequestException as e:
-                    logger.debug("[Cloudflare检测] 请求 %s 失败: %s", url, str(e))
+                    logger.debug("[CF] 请求 %s 失败: %s", url, str(e))
                     continue
                     
         except Exception as e:
-            logger.debug("[Cloudflare检测] CF-Ray检查异常: %s", str(e))
+            logger.debug("[CF] CF-Ray检查异常: %s", str(e))
             
         return False
 
@@ -427,11 +426,11 @@ class CloudflareDetector:
         if not domain:
             return False
             
-        logger.debug("[Cloudflare检测] 开始检查域名 %s", domain)
+        logger.debug("[CF] 开始检查域名 %s", domain)
         
         # 首先尝试DNS检测方法
         if self._check_cloudflare_by_dns(domain):
-            logger.debug("[Cloudflare检测] 域名 %s 通过DNS检测确认使用Cloudflare", domain)
+            logger.debug("[CF] 域名 %s 通过DNS检测确认使用Cloudflare", domain)
             return True
             
         # 然后尝试通过Cloudflare IP范围检测
@@ -439,15 +438,15 @@ class CloudflareDetector:
         if resolved_ips:
             for ip in resolved_ips:
                 if self._is_cloudflare_ip(ip):
-                    logger.debug("[Cloudflare检测] 域名 %s 解析到Cloudflare IP: %s", domain, ip)
+                    logger.debug("[CF] 域名 %s 解析到Cloudflare IP: %s", domain, ip)
                     return True
                     
         # 最后尝试HTTP头部检测方法
         if self._check_cloudflare_by_cf_ray(domain):
-            logger.debug("[Cloudflare检测] 域名 %s 通过HTTP头部检测确认使用Cloudflare", domain)
+            logger.debug("[CF] 域名 %s 通过HTTP头部检测确认使用Cloudflare", domain)
             return True
             
-        logger.debug("[Cloudflare检测] 域名 %s 未检测到使用Cloudflare", domain)
+        logger.debug("[CF] 域名 %s 未检测到使用Cloudflare", domain)
         return False
 
     def _resolve_domain(self, domain: str) -> List[str]:
@@ -492,7 +491,7 @@ class CloudflareDetector:
                     pass
                     
         except Exception as e:
-            logger.debug("[域名解析] 解析域名 %s 出错: %s", domain, str(e))
+            logger.debug("[CF] 解析域名 %s 出错: %s", domain, str(e))
             
         return ips
 
@@ -518,7 +517,7 @@ class CloudflareDetector:
                     for rdata in answers:
                         ns = str(rdata).lower()
                         if 'cloudflare' in ns or 'ns.cloudflare.com' in ns:
-                            logger.debug("[Cloudflare检测] 域名 %s 的NS记录指向Cloudflare: %s", domain, ns)
+                            logger.debug("[CF] 域名 %s 的NS记录指向Cloudflare: %s", domain, ns)
                             return True
                 except Exception:
                     pass
@@ -531,7 +530,7 @@ class CloudflareDetector:
                         # Cloudflare CNAME特征
                         cf_indicators = ['cloudflare', 'cdn', 'workers.dev', 'pages.dev']
                         if any(indicator in cname for indicator in cf_indicators):
-                            logger.debug("[Cloudflare检测] 域名 %s 的CNAME指向Cloudflare: %s", domain, cname)
+                            logger.debug("[CF] 域名 %s 的CNAME指向Cloudflare: %s", domain, cname)
                             return True
                 except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
                     pass
@@ -542,7 +541,7 @@ class CloudflareDetector:
                     for rdata in answers:
                         mx = str(rdata.exchange).lower()
                         if 'cloudflare' in mx:
-                            logger.debug("[Cloudflare检测] 域名 %s 的MX记录指向Cloudflare: %s", domain, mx)
+                            logger.debug("[CF] 域名 %s 的MX记录指向Cloudflare: %s", domain, mx)
                             return True
                 except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
                     pass
@@ -553,16 +552,16 @@ class CloudflareDetector:
                     for rdata in answers:
                         txt = str(rdata).lower()
                         if 'cloudflare' in txt:
-                            logger.debug("[Cloudflare检测] 域名 %s 的TXT记录包含Cloudflare特征: %s", domain, txt)
+                            logger.debug("[CF] 域名 %s 的TXT记录包含Cloudflare特征: %s", domain, txt)
                             return True
                 except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
                     pass
                     
             except ImportError:
-                logger.debug("[Cloudflare检测] dns.resolver模块不可用")
+                logger.debug("[CF] dns.resolver模块不可用")
                 
         except Exception as e:
-            logger.debug("[Cloudflare检测] DNS检测异常: %s", str(e))
+            logger.debug("[CF] DNS检测异常: %s", str(e))
             
         return False
 
@@ -574,7 +573,7 @@ class CloudflareDetector:
             
             # 尝试HTTPS和HTTP
             for protocol in ['https', 'http']:
-                logger.debug("[Cloudflare检测] 尝试 %s 请求: %s", protocol, domain)
+                logger.debug("[CF] 尝试 %s 请求: %s", protocol, domain)
                 url = f"{protocol}://{domain}"
                 
                 # 尝试发送HTTP请求
@@ -608,13 +607,13 @@ class CloudflareDetector:
                     
                     for header in cf_headers:
                         if header.lower() in response_headers:
-                            logger.debug("[Cloudflare检测] 域名 %s 的HTTP响应头包含Cloudflare特征: %s", domain, header)
+                            logger.debug("[CF] 域名 %s 的HTTP响应头包含Cloudflare特征: %s", domain, header)
                             return True
                     
                     # 检查服务器头部
                     server = response_headers.get('server', '').lower()
                     if 'cloudflare' in server:
-                        logger.debug("[Cloudflare检测] 域名 %s 的Server头显示使用Cloudflare: %s", domain, server)
+                        logger.debug("[CF] 域名 %s 的Server头显示使用Cloudflare: %s", domain, server)
                         return True
                     
                     # 检查响应内容中的Cloudflare特征
@@ -631,22 +630,22 @@ class CloudflareDetector:
                         
                         for marker in cf_content_markers:
                             if marker in content:
-                                logger.debug("[Cloudflare检测] 域名 %s 的响应内容包含Cloudflare特征: %s", domain, marker)
+                                logger.debug("[CF] 域名 %s 的响应内容包含Cloudflare特征: %s", domain, marker)
                                 return True
                     except Exception as e:
-                        logger.debug("[Cloudflare检测] 解析响应内容时出错: %s", str(e))
+                        logger.debug("[CF] 解析响应内容时出错: %s", str(e))
                         
                 except requests.RequestException as e:
-                    logger.debug("[Cloudflare检测] %s请求异常: %s", protocol, str(e))
+                    logger.debug("[CF] %s请求异常: %s", protocol, str(e))
                     
                     # 如果连接被重置，可能是Cloudflare防火墙拦截
                     if "connection" in str(e).lower() and ("reset" in str(e).lower() or "aborted" in str(e).lower()):
-                        logger.debug("[Cloudflare检测] 连接被重置，可能是Cloudflare防火墙: %s", domain)
+                        logger.debug("[CF] 连接被重置，可能是Cloudflare防火墙: %s", domain)
                         return True
                     continue  # 尝试下一个协议
                     
         except Exception as e:
-            logger.debug("[Cloudflare检测] HTTP检测异常: %s", str(e))
+            logger.debug("[CF] HTTP检测异常: %s", str(e))
             
         return False
 

@@ -106,7 +106,7 @@ class HostsStore:
         if not merged_entries:
             return []
         if not merged_enabled:
-            logger.debug("[MergedHosts] 无启用源，丢弃 条目=%s", len(merged_entries))
+            logger.debug("[HOSTS] 无启用源，丢弃 条目=%s", len(merged_entries))
             return []
         return [(
             self.source_start_mark % "MergedHosts",
@@ -123,7 +123,7 @@ class HostsStore:
         # 剥离所有历史残留分区（含残缺/顺序异常的情况）
         kept, removed = self._strip_project_sections(lines)
         if removed:
-            logger.debug("[HOSTS] 更新前已清理历史分区 数量=%s", removed)
+            logger.debug("[HOSTS] 更新前已清理历史Hosts ")
         # 添加新的条目，保持分段格式
         new_content = "".join(kept).rstrip() + "\n\n" + self.start_mark + "\n"
         for start_mark, entries, end_mark in sections:
@@ -144,11 +144,11 @@ class HostsStore:
             kept, removed = self._strip_project_sections(lines)
             if removed:
                 self._write_hosts_atomic("".join(kept).rstrip() + "\n")
-                logger.info("[HOSTS] 清空 移除数=%s 系统内容=保留", removed)
+                logger.info("[HOSTS] 清空Hosts分区 移除分区数=%s 系统内容=保留", removed)
             else:
-                logger.info("[HOSTS] 清空 移除数=0")
+                logger.info("[HOSTS] 清空Hosts分区 移除分区数=0")
         except Exception as e:
-            logger.exception("[HOSTS] 清理PT-Accelerator分区失败: %s", str(e))
+            logger.exception("[HOSTS] 清理Hosts分区失败: %s", str(e))
 
     def save_user_content(self, content: str) -> int:
         """保存用户编辑的 hosts 内容，本项目的分区会被重新生成而不是照搬。
@@ -160,7 +160,7 @@ class HostsStore:
         kept, removed = self._strip_project_sections(lines)
         self._write_hosts_atomic("".join(kept))
         if removed:
-            logger.info("[HOSTS] save 移除分区=%s", removed)
+            logger.info("[HOSTS] 保存Hosts 移除分区=%s", removed)
         else:
-            logger.info("[HOSTS] save 结果=成功")
+            logger.info("[HOSTS] 保存Hosts 结果=成功")
         return removed

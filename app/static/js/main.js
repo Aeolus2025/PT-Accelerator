@@ -17,6 +17,9 @@
         global.notifyPage.initNotifySettings();
         global.authPage.initAuthSettings();
 
+        // 后台任务（hosts 更新）结束后回源一次，自动禁用这类变化不用手动刷新
+        store.watchTask();
+
         // 配置变更后重绘依赖它的两张表
         store.subscribe(function (config) {
             global.trackersPage.renderTrackerTable(config.trackers || []);

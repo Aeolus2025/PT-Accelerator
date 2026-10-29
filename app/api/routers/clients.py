@@ -25,6 +25,16 @@ router = APIRouter()
 
 # ===== 下载器相关API =====
 
+def _client_label(clients_config, client_id: Optional[str]) -> str:
+    """日志里用名称标识下载器；找不到时回退 id。"""
+    if not client_id:
+        return ""
+    for item in clients_config or []:
+        if item.get("id") == client_id:
+            return item.get("name") or client_id
+    return client_id
+
+
 # 获取下载器客户端列表
 @router.get("/torrent-clients")
 async def get_torrent_clients(config: Dict[str, Any] = Depends(get_file_config)):
@@ -87,6 +97,11 @@ async def save_torrent_clients(
         client_ids = [client.get("id") for client in clients_config]
         if len(client_ids) != len(set(client_ids)):
             return {"success": False, "message": "客户端ID不能重复"}
+
+        # 名称也要唯一：日志里用名称标识下载器，重名就分不清是哪一个
+        client_names = [(client.get("name") or "").strip() for client in clients_config]
+        if len(client_names) != len(set(client_names)):
+            return {"success": False, "message": "下载器名称不能重复，请改成不同的名称"}
         
         # 只写 torrent_clients 这一节，其余配置原样保留
         config_store.mutate(lambda current: current.__setitem__("torrent_clients", clients_config))
@@ -126,7 +141,9 @@ async def test_client_connection(
         else:
             return {"success": False, "message": "请提供 client_id 或 client_config"}
 
-        log_op("测试下载器连接", 目标=client_id or (client_config or {}).get("name", "临时配置"),
+        log_op("测试下载器连接",
+               目标=torrent_client_manager.client_name(client_id)
+                    or (client_config or {}).get("name", "临时配置"),
                ok=bool(result.get("success")))
         return result
 
@@ -144,12 +161,13 @@ async def delete_torrent_client(
     """删除指定的下载器客户端"""
     try:
         clients_config = config.get("torrent_clients", [])
-        
+        client_label = _client_label(clients_config, client_id)
+
         # 查找并删除指定客户端
         updated_clients = [client for client in clients_config if client.get("id") != client_id]
-        
+
         if len(updated_clients) == len(clients_config):
-            log_op("删除下载器", 目标=client_id, ok=False, level=logging.WARNING, 原因="未找到")
+            log_op("删除下载器", 目标=client_label, ok=False, level=logging.WARNING, 原因="未找到")
             return {"success": False, "message": f"未找到客户端: {client_id}"}
         
         config_store.mutate(lambda current: current.__setitem__("torrent_clients", updated_clients))
@@ -159,8 +177,8 @@ async def delete_torrent_client(
         torrent_client_manager = get_torrent_client_manager()
         torrent_client_manager.update_config(config)
         
-        logger.info("[CLIENT] 已删除下载器客户端: %s", client_id)
-        log_op("删除下载器", 目标=client_id)
+        logger.info("[CLIENT] 已删除下载器客户端: %s", client_label)
+        log_op("删除下载器", 目标=client_label)
         return {"success": True, "message": "客户端已删除"}
 
     except Exception as e:
@@ -208,7 +226,8 @@ async def import_trackers_from_clients(
     表现为"导入完成后页面不会自动刷新"。
     """
     if client_id:
-        logger.info("[CLIENT] 开始导入Tracker 下载器=%s", client_id)
+        logger.info("[CLIENT] 开始导入Tracker 下载器=%s",
+                    _client_label(config.get("torrent_clients"), client_id))
     else:
         logger.info("[CLIENT] 开始从下载器客户端导入Tracker（全部已启用）")
 
@@ -261,7 +280,7 @@ async def import_trackers_from_clients(
                     logger.debug("[CF] 域名=%s 结果=失败", domain)
                 if cf_domains or non_cf_domains:
                     logger.info(
-                        "[TASK] 导入Tracker 阶段=检测 导入=%s 过滤=%s",
+                        "[TASK] 导入Tracker 阶段=分析 导入=%s 过滤=%s",
                         len(cf_domains), len(non_cf_domains),
                     )
 
@@ -314,6 +333,7 @@ async def import_trackers_from_clients(
         background_tasks.add_task(hosts_manager.update_hosts)
 
     ok = result.get("status") == "success"
-    log_op("导入Tracker", 目标=client_id or "all", ok=ok,
+    log_op("导入Tracker",
+           目标=_client_label(config.get("torrent_clients"), client_id) or "全部", ok=ok,
            原因=None if ok else result.get("message"))
     return result

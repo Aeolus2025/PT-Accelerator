@@ -65,10 +65,10 @@ def send_task_notify(title: str, content: str):
                 sent += 1
             except Exception:
                 failed.append(flat.get("name") or flat.get("type") or "unknown")
-                logger.exception("[NOTIFY] channel_send ok=false")
+                logger.exception("[NOTIFY] 渠道发送失败")
         logger.info(
             "[NOTIFY] task_send 渠道数=%s 已发送=%s 失败数=%s 失败渠道=%s 耗时=%s",
             len(valid), sent, len(failed), ",".join(failed) or "-", int(timer),
         )
     except Exception:
-        logger.exception("[NOTIFY] task_send ok=false")
+        logger.exception("[NOTIFY] 任务通知发送失败")

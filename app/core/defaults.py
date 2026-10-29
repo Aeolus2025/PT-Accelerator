@@ -64,6 +64,9 @@ DEFAULT_CONFIG = {
             "enable": False
         }
     ],
+    "logging": {
+        "level": "INFO",  # 日志记录级别：面板下拉框可改，重启后按此生效
+    },
     "auth": {
         "enable": False,
         "username": "admin",

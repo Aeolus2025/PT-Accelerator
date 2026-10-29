@@ -132,6 +132,15 @@
     }
 
     function init() {
+        // 打开「添加」弹窗时清空上次输入：失败后取消再打开不该残留旧值
+        var addModal = document.getElementById('addTrackerModal');
+        if (addModal) {
+            addModal.addEventListener('show.bs.modal', function () {
+                var form = document.getElementById('add-tracker-form');
+                if (form) form.reset();
+            });
+        }
+
         var tbody = document.getElementById('trackers-table');
         if (tbody) {
             ui.delegate(tbody, 'change', '[data-action="toggle-tracker"]', function () {

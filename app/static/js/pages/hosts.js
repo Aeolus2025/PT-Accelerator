@@ -45,6 +45,22 @@
             });
     }
 
+    function restoreDefaultHostsSources(btn) {
+        if (btn) btn.disabled = true;
+        api.post('/api/hosts-sources/restore-defaults')
+            .then(function (res) {
+                ui.showToast((res && res.message) || '默认源已恢复', 'success', 8000);
+                loadHostsSources();
+            })
+            .catch(function (error) {
+                console.error('恢复默认Hosts源失败:', error);
+                ui.showToast('恢复默认Hosts源失败: ' + error.message, 'danger', 10000);
+            })
+            .finally(function () {
+                if (btn) btn.disabled = false;
+            });
+    }
+
     function saveHostsSource() {
         var name = document.getElementById('hosts-source-name').value;
         var url = document.getElementById('hosts-source-url').value;
@@ -126,6 +142,15 @@
     }
 
     function init() {
+        // 打开「添加」弹窗时清空上次输入：失败后取消再打开不该残留旧值
+        var addModal = document.getElementById('addHostsSourceModal');
+        if (addModal) {
+            addModal.addEventListener('show.bs.modal', function () {
+                var form = document.getElementById('add-hosts-source-form');
+                if (form) form.reset();
+            });
+        }
+
         var tbody = document.getElementById('hosts-sources-table');
         if (tbody) {
             ui.delegate(tbody, 'change', '[data-action="toggle-hosts-source"]', function () {
@@ -151,6 +176,10 @@
                 }
             });
         }
+
+        ui.delegate(document, 'click', '#btn-restore-default-hosts-sources', function () {
+            restoreDefaultHostsSources(this);
+        });
 
         ui.delegate(document, 'click', '#btn-save-hosts-source', function () {
             saveHostsSource();

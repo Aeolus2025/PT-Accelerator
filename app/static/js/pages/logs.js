@@ -1,23 +1,32 @@
 /**
- * 日志面板：级别筛选、增量轮询、滚动跟随。
+ * 日志面板：级别筛选、关键词搜索、增量轮询、滚动跟随。
+ *
+ * 面板直接渲染 /api/logs 返回的原文，与 logs/app.log 里的那一行完全一致，
+ * 不再重排字段，避免两处看到的内容对不上。
  */
 (function (global) {
     'use strict';
 
     var POLL_MS = 3000;
-    var MAX_DOM_RECORDS = 2000;
+    var MAX_RECORDS = 5000;       // 内存里保留的记录上限
+    var MAX_DOM_RECORDS = 2000;   // 视图里最多渲染的记录数
     var NEAR_BOTTOM_PX = 40;
     var MAX_FAILURES = 3;
     var PAGE_LINES = 1000;
+    var SEARCH_DEBOUNCE_MS = 200;
+    var LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR'];
 
     var state = {
         offset: 0,
         records: [],
-        levels: { DEBUG: false, INFO: true, WARNING: true, ERROR: true },
+        // 视图筛选：ALL 表示不过滤，其余按级别精确匹配
+        filter: 'ALL',
+        keyword: '',
         streaming: false,
         // 是否在日志 tab 上，决定要不要真的跑定时器
         active: false,
         timer: null,
+        searchTimer: null,
         // 在飞的请求，后来者排队等它结束而不是直接丢弃
         inflight: null,
         failures: 0,
@@ -28,48 +37,48 @@
         return document.getElementById('logs');
     }
 
-    function selectedLevels() {
-        return Object.keys(state.levels).filter(function (name) {
-            return state.levels[name];
-        });
+    function matches(record) {
+        if (state.filter !== 'ALL' && record.level !== state.filter) {
+            return false;
+        }
+        if (!state.keyword) {
+            return true;
+        }
+        return String(record.text || '').toLowerCase().indexOf(state.keyword) >= 0;
+    }
+
+    function visible(records) {
+        return records.filter(matches);
     }
 
     function recordHtml(record) {
-        var level = (record.level || 'INFO').toLowerCase();
-        // "2026-10-26 17:05:11,204" -> "10-26 17:05:11"，日期前缀在长会话里不提供信息
-        var time = (record.ts || '').slice(5, 19);
-        var parts = ['[' + ui.escapeHtml(time) + ']',
-                     '[' + ui.escapeHtml(record.level || 'INFO') + ']'];
-        // 旧日志没有标签，省略该段而不是显示空括号
-        if (record.tag) {
-            parts.push('[' + ui.escapeHtml(record.tag) + ']');
-        }
-        // <pre> 只接受 phrasing content，这里用 span + CSS display:block
-        return '<span class="log-rec lv-' + ui.escapeHtml(level) + '">' +
-            '<span class="log-head">' + parts.join(' - ') + ' - </span>' +
-            '<span class="log-body">' + ui.escapeHtml(record.body || '') + '</span>' +
-            '</span>';
+        var level = String(record.level || 'INFO').toLowerCase();
+        // 原文照搬：面板与日志文件显示同一行
+        return '<span class="log-rec lv-' + level + '">' +
+            ui.escapeHtml(record.text || '') + '</span>';
     }
 
     function isNearBottom(node) {
         return node.scrollHeight - node.scrollTop - node.clientHeight <= NEAR_BOTTOM_PX;
     }
 
+    function emptyText() {
+        return (state.keyword || state.filter !== 'ALL') ? '没有匹配的日志' : '暂无日志';
+    }
+
     function renderAll() {
         var node = el();
         if (!node) return;
 
-        var visible = state.records.filter(function (record) {
-            return state.levels[record.level] !== false;
-        });
+        var rows = visible(state.records);
         // 只保留尾部，避免长会话把 DOM 撑大
-        if (visible.length > MAX_DOM_RECORDS) {
-            visible = visible.slice(-MAX_DOM_RECORDS);
+        if (rows.length > MAX_DOM_RECORDS) {
+            rows = rows.slice(-MAX_DOM_RECORDS);
         }
 
-        node.innerHTML = visible.length
-            ? visible.map(recordHtml).join('')
-            : '<span class="log-empty">暂无日志</span>';
+        node.innerHTML = rows.length
+            ? rows.map(recordHtml).join('')
+            : '<span class="log-empty">' + emptyText() + '</span>';
         node.scrollTop = node.scrollHeight;
         updateStatus();
     }
@@ -80,20 +89,17 @@
 
         // 追加前判断，追加后 scrollHeight 已变大，判断会永远为 false
         var stick = isNearBottom(node);
-        var visible = records.filter(function (record) {
-            return state.levels[record.level] !== false;
-        });
-        if (visible.length) {
+        var rows = visible(records);
+        if (rows.length) {
             // 视图里可能还留着"暂无日志"占位，追加前必须清掉
             if (!node.querySelector('.log-rec')) {
                 node.innerHTML = '';
             }
-            node.insertAdjacentHTML('beforeend', visible.map(recordHtml).join(''));
+            node.insertAdjacentHTML('beforeend', rows.map(recordHtml).join(''));
         }
 
         // DOM 超限时整体重绘一次，丢弃最早的部分
-        var count = node.querySelectorAll('.log-rec').length;
-        if (count > MAX_DOM_RECORDS) {
+        if (node.querySelectorAll('.log-rec').length > MAX_DOM_RECORDS) {
             renderAll();
             return;
         }
@@ -106,11 +112,7 @@
     function updateStatus() {
         var node = document.getElementById('log-status');
         if (!node) return;
-        var total = state.records.length;
-        var shown = state.records.filter(function (record) {
-            return state.levels[record.level] !== false;
-        }).length;
-        var parts = ['显示 ' + shown + ' / ' + total + ' 条'];
+        var parts = ['显示 ' + visible(state.records).length + ' / ' + state.records.length + ' 条'];
         if (state.streaming) parts.push('持续滚动中');
         node.textContent = parts.join(' · ');
     }
@@ -123,30 +125,27 @@
             });
         }
 
-        var query = ['lines=' + PAGE_LINES, 'offset=' + (reset ? 0 : state.offset)];
-        var levels = selectedLevels();
-        // 全选时不传，省掉一次服务端过滤
-        if (levels.length && levels.length < 4) {
-            query.push('level=' + encodeURIComponent(levels.join(',')));
-        }
-
-        var request = api.get('/api/logs?' + query.join('&'))
+        var query = 'lines=' + PAGE_LINES + '&offset=' + (reset ? 0 : state.offset);
+        var request = api.get('/api/logs?' + query)
             .then(function (data) {
                 state.failures = 0;
-                var incoming = data.records || [];
+                var incoming = (data && data.records) || [];
                 // truncated 表示手里的 offset 已作废，等同于重新拉一次
-                if (reset || data.truncated) {
+                if (reset || (data && data.truncated)) {
                     state.records = incoming;
-                    state.offset = data.offset || 0;
+                    state.offset = (data && data.offset) || 0;
                     state.loaded = true;
                     renderAll();
                     return;
                 }
                 if (incoming.length) {
                     state.records = state.records.concat(incoming);
+                    if (state.records.length > MAX_RECORDS) {
+                        state.records = state.records.slice(-MAX_RECORDS);
+                    }
                     appendRecords(incoming);
                 }
-                state.offset = data.offset || 0;
+                state.offset = (data && data.offset) || 0;
                 state.loaded = true;
                 // 没有新记录但视图还没渲染过（空文件首屏）也要画一次
                 if (!incoming.length && !state.records.length) {
@@ -179,12 +178,8 @@
     // 定时器只负责轮询，开关状态由 streaming 表达，两者分开才不会互相打脸
     function syncTimer() {
         var shouldRun = state.streaming && state.active && !document.hidden;
-        if (!shouldRun) {
-            clearTimer();
-            return;
-        }
-        // 每次变更条件都重建，避免沿用旧起点导致刷新间隔被拉长
         clearTimer();
+        if (!shouldRun) return;
         state.timer = setInterval(function () {
             fetchLogs(false);
         }, POLL_MS);
@@ -240,6 +235,65 @@
         });
     }
 
+    // ---- 记录级别（写入文件的级别，与视图筛选是两件事） ----
+
+    function renderLevel(level, envLevel) {
+        var select = document.getElementById('sel-log-level');
+        if (!select) return;
+        if (level) select.value = level;
+        select.title = envLevel
+            ? '环境变量 LOG_LEVEL=' + envLevel + ' 优先，重启后按它生效'
+            : '日志记录级别：低于该级别的日志不会写入文件';
+    }
+
+    function loadLevel() {
+        api.get('/api/logs/level')
+            .then(function (data) {
+                if (!data) return;
+                renderLevel(data.level, data.env_level);
+            })
+            .catch(function (error) {
+                console.error('读取日志级别失败:', error);
+            });
+    }
+
+    function saveLevel(select) {
+        var level = select.value;
+        select.disabled = true;
+        api.post('/api/logs/level', { level: level })
+            .then(function (res) {
+                if (!res || !res.success) {
+                    ui.showToast((res && res.message) || '设置日志级别失败', 'danger');
+                    loadLevel();
+                    return;
+                }
+                renderLevel(res.level, res.env_level);
+                if (res.env_level && res.env_level !== res.level) {
+                    ui.showToast('已切换为 ' + res.level + '，但环境变量 LOG_LEVEL=' +
+                        res.env_level + ' 优先，重启后会回到 ' + res.env_level, 'warning', 9000);
+                } else {
+                    ui.showToast('日志级别已设为 ' + res.level, 'success');
+                }
+                // 级别变了，随后产生的日志才会进文件，这里刷一次让变化可见
+                refresh();
+            })
+            .catch(function (err) {
+                ui.showToast('设置日志级别失败: ' + err.message, 'danger');
+                loadLevel();
+            })
+            .finally(function () {
+                select.disabled = false;
+            });
+    }
+
+    // ---- 视图筛选与搜索 ----
+
+    function setFilter(value) {
+        if (state.filter === value) return;
+        state.filter = value;
+        renderAll();
+    }
+
     function bindEvents() {
         ui.delegate(document, 'click', '#btn-refresh-logs', function () {
             refresh();
@@ -254,15 +308,24 @@
                 stopStream();
             }
         });
+        ui.delegate(document, 'change', '#sel-log-level', function () {
+            saveLevel(this);
+        });
 
-        ['DEBUG', 'INFO', 'WARNING', 'ERROR'].forEach(function (name) {
-            ui.delegate(document, 'change', '#lv-' + name, function () {
-                state.levels[name] = this.checked;
-                // 已有记录里可能缺该级别，重新拉一次才完整；
-                // 拉完必须重新对时，否则定时器仍是从旧配置那次刷新算起
-                refresh();
-                syncTimer();
+        ['ALL'].concat(LEVELS).forEach(function (name) {
+            ui.delegate(document, 'change', '#lf-' + name, function () {
+                if (this.checked) setFilter(name);
             });
+        });
+
+        ui.delegate(document, 'input', '#log-search', function () {
+            var value = this.value;
+            clearTimeout(state.searchTimer);
+            // 只过滤已有记录，不重新请求，输入过程中不会打断滚动
+            state.searchTimer = setTimeout(function () {
+                state.keyword = value.trim().toLowerCase();
+                renderAll();
+            }, SEARCH_DEBOUNCE_MS);
         });
 
         // 切走时只停定时器，勾选状态保留
@@ -286,6 +349,7 @@
 
     function init() {
         bindEvents();
+        loadLevel();
         refresh();
     }
 

@@ -22,6 +22,28 @@ def strip_port(domain: str) -> str:
     return domain.split(":")[0] if ":" in domain else domain
 
 
+# 顶级域至少两位字母；每级标签不超过 63 字符，且不以连字符开头或结尾
+_DOMAIN_RE = re.compile(
+    r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$",
+    re.IGNORECASE,
+)
+_IPV4_RE = re.compile(r"^(?:\d{1,3}\.){3}\d{1,3}$")
+
+
+def is_valid_domain(domain: str) -> bool:
+    """判断是否为可解析的域名，允许带端口与 IPv4。
+
+    只校验格式不查 DNS：目的是挡住 `bb` 这类明显不是域名的输入。
+    否则每层探测都要等超时，单个无效域名能让一次 hosts 更新多花一分钟。
+    """
+    host = strip_port(str(domain or "").strip())
+    if not host:
+        return False
+    if _IPV4_RE.match(host):
+        return all(0 <= int(part) <= 255 for part in host.split("."))
+    return bool(_DOMAIN_RE.match(host))
+
+
 def clean_domains(raw_domains) -> List[str]:
     """清洗域名：支持列表或按行分隔的字符串，去协议前缀、切路径、去空行。
 

@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from app.core import config_store
+from app.core.defaults import HOSTS_SOURCE_PRESETS
 from app.globals import get_hosts_manager
 from app.services.hosts_manager import HostsManager
 from app.services.task_notify import send_task_notify
@@ -17,6 +18,45 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+
+# 恢复默认hosts源：只补回缺失的预置源，不删不改已有的
+@router.post("/hosts-sources/restore-defaults")
+async def restore_default_hosts_sources():
+    """补回缺失的预置 hosts 源。
+
+    只补不删：按名称或 URL 判重，已有的跳过，用户自建的源不受影响。
+    补回的源保持默认关闭，与出厂一致。
+    """
+    added, existed = [], 0
+
+    def _apply(current):
+        nonlocal existed
+        sources = current.setdefault("hosts_sources", [])
+        names = {str(item.get("name") or "") for item in sources}
+        urls = {str(item.get("url") or "") for item in sources}
+        for preset in HOSTS_SOURCE_PRESETS:
+            if preset["name"] in names or preset["url"] in urls:
+                existed += 1
+                continue
+            sources.append(dict(preset))
+            added.append(preset["name"])
+
+    try:
+        config_store.mutate(_apply)
+    except Exception as e:
+        logger.exception("[HOSTS] 恢复默认Hosts源失败: %s", str(e))
+        log_op("恢复默认Hosts源", ok=False, 错误=str(e))
+        raise HTTPException(status_code=500, detail=f"恢复默认Hosts源失败: {str(e)}")
+
+    log_op("恢复默认Hosts源", 新增=len(added), 已存在=existed)
+    if not added:
+        return {"success": True, "message": "默认源已存在，无需恢复", "added": []}
+    return {
+        "success": True,
+        "message": "已补回 %d 条默认源：%s" % (len(added), "、".join(added)),
+        "added": added,
+    }
 
 
 # 添加hosts源（URL校验）

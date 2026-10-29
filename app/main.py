@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request, Depends, Form, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, JSONResponse
 from pathlib import Path
 import os
 import copy
@@ -24,8 +24,7 @@ from app.core import config_store
 from app.core.constants import CONFIG_PATH, DEFAULT_CLOUDFLARE_IP
 from app.core.defaults import DEFAULT_CONFIG
 from app.core.locking import config_write_lock
-from app.core.logging_setup import setup_logging, resolve_level
-from app.api.middleware import RequestContextMiddleware
+from app.core.logging_setup import current_level_name, setup_logging
 from version import get_version
 
 # config 目录要在读配置前就存在；logs 由 setup_logging 负责
@@ -41,7 +40,7 @@ def create_nowip_file():
         try:
             with open("nowip_hosts.txt", "w") as f:
                 f.write(DEFAULT_CLOUDFLARE_IP)
-            logger.info("[BOOT] 成功创建nowip_hosts.txt文件，内容为: %s", DEFAULT_CLOUDFLARE_IP)
+            logger.info("[BOOT] 创建 nowip_hosts.txt 内容=%s", DEFAULT_CLOUDFLARE_IP)
         except Exception as e:
             logger.exception("[BOOT] 创建nowip_hosts.txt文件失败: %s", str(e))
 
@@ -52,7 +51,7 @@ def create_nowip_file():
         try:
             with open(os.path.join(arch_dir, "nowip_hosts.txt"), "w") as f:
                 f.write(DEFAULT_CLOUDFLARE_IP)
-            logger.info("[BOOT] 成功在%s目录下创建nowip_hosts.txt文件", arch_dir)
+            logger.info("[BOOT] 创建 nowip_hosts.txt 目录=%s", arch_dir)
         except Exception as e:
             logger.exception("[BOOT] 在%s目录下创建nowip_hosts.txt文件失败: %s", arch_dir, str(e))
 
@@ -90,7 +89,7 @@ def load_config():
         
         if "cloudflare" in current_config:
             if "ipv4" in current_config["cloudflare"]:
-                logger.info("[BOOT] 从配置中移除废弃的ipv4字段")
+                logger.info("[BOOT] 移除废弃配置 字段=cloudflare.ipv4")
                 del current_config["cloudflare"]["ipv4"]
                 need_save_after_load = True
         
@@ -132,7 +131,7 @@ async def lifespan(_app: FastAPI):
     startup()
     yield
     scheduler_service.stop()
-    logger.info("[BOOT] 应用已关闭，调度器已停止")
+    logger.info("[BOOT] 应用已关闭 调度器=已停止")
 
 
 app = FastAPI(title="PT-Accelerator", lifespan=lifespan)
@@ -143,12 +142,20 @@ if _startup_config.get("auth", {}).get("secret_key"):
     app.add_middleware(SessionMiddleware, secret_key=_startup_config["auth"]["secret_key"])
 else:
     # 如果到这里 secret_key 仍然没有，这是个严重问题，但为了应用能启动，用一个固定值（不推荐生产环境）
-    logger.error("[BOOT] session secret_key 缺失，使用临时密钥，生产环境必须修复 ok=false")
+    logger.error("[BOOT] session secret_key 缺失 环境=临时密钥 需修复=是")
     app.add_middleware(SessionMiddleware, secret_key="temporary_insecure_secret_key_please_change")
 
-# 放在 SessionMiddleware 之后：后添加的在外层，这样请求进入时先有 rid，
-# 会话校验失败的请求也能带上 rid 记进日志
-app.add_middleware(RequestContextMiddleware)
+@app.exception_handler(Exception)
+async def handle_uncaught_exception(request: Request, exc: Exception):
+    """未捕获异常：记一行带堆栈的日志，返回统一的 500。
+
+    只记错误，不记成功请求——访问日志已移除，这里补的是「出了事却没痕迹」那个缺口。
+    """
+    logger.error(
+        "[HTTP] 未捕获异常 %s %s 错误=%s",
+        request.method, request.url.path, exc, exc_info=exc,
+    )
+    return JSONResponse(status_code=500, content={"detail": "服务器内部错误，请查看日志"})
 
 # 挂载静态文件
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
@@ -293,13 +300,12 @@ def _log_boot_summary():
     cfg = load_config() or {}
     auth = cfg.get("auth", {}) or {}
     logger.info(
-        "[BOOT] 版本=%s 端口=%s 认证=%s Tracker数=%s 源数=%s 日志级别=%s",
+        "[BOOT] 启动完成 PT-Accelerator版本=%s 认证=%s Tracker数=%s Hosts源数=%s 日志级别=%s",
         get_version(),
-        os.environ.get("APP_PORT", "23333"),
         bool(auth.get("enable")),
         len(cfg.get("trackers", []) or []),
         len(cfg.get("hosts_sources", []) or []),
-        logging.getLevelName(resolve_level()),
+        current_level_name(),
     )
 
 

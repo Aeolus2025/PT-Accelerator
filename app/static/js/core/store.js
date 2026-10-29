@@ -134,9 +134,33 @@
             return flush();
         }
 
+        // 后台任务结束回源：hosts 更新在后台跑，会改动 trackers
+        // （例如把判定为非 Cloudflare 的域名禁用），不轮询就得手动刷新才看得到。
+        // 比对「状态+说明」而不是只看 running→done：跑得比轮询间隔还快的任务也要覆盖到。
+        var taskTimer = null;
+        var taskSig = null;
+
+        function watchTask(intervalMs) {
+            if (taskTimer) return;
+            taskTimer = setInterval(function () {
+                global.api.get('/api/task-status').then(function (data) {
+                    var status = (data && data.status) || '';
+                    var sig = status + '|' + ((data && data.message) || '');
+                    if (taskSig === null) {          // 首次只记录基线，不触发回源
+                        taskSig = sig;
+                        return;
+                    }
+                    // 任务收尾时说明会变；运行中的进度变化不触发，避免刷新打断操作
+                    if (sig !== taskSig && status !== 'running') load(true);
+                    taskSig = sig;
+                }, function () { /* 单次失败忽略，下一轮再试 */ });
+            }, intervalMs || 5000);
+        }
+
         return {
             ENDPOINT: ENDPOINT,
             get: get,
+            watchTask: watchTask,
             section: function (name, fallback) {
                 var v = get()[name];
                 return (v === undefined || v === null) ? fallback : v;

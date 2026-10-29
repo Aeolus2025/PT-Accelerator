@@ -152,7 +152,9 @@ body {
 }
 
 #logs {
-    height: 500px;
+    /* 跟随视口高度，长日志一屏能看更多行 */
+    height: calc(100vh - 330px);
+    min-height: 320px;
     overflow-y: auto;
     font-family: Consolas, Monaco, 'Andale Mono', monospace;
     white-space: pre-wrap;
@@ -170,13 +172,15 @@ body {
     border-left: 3px solid transparent;
 }
 
-/* 时间/级别/标签用等宽数字，纵向对齐后便于扫读 */
-.log-head {
-    color: #6c757d;
-    font-variant-numeric: tabular-nums;
+/* 记录级别下拉框与搜索框：宽度跟着内容走，不撑满一行 */
+.log-level-select {
+    width: auto;
+    min-width: 96px;
 }
 
-.log-body { white-space: pre-wrap; }
+.log-search {
+    max-width: 320px;
+}
 
 .log-rec.lv-debug { color: #6c757d; }
 .log-rec.lv-warning { color: #8a6d00; border-left-color: #e0a800; }

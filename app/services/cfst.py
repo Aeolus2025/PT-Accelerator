@@ -30,7 +30,7 @@ class CloudflareSpeedTestService:
         # 记录当前状态
         self.running = False
         
-        logger.info("[CFST] 初始化成功！")
+        logger.info("[CFST] 初始化成功")
         logger.debug("[CFST] 路径 基础目录=%s IP=%s IPv6=%s 结果=%s",
                      self.base_dir, self.ip_file, self.ipv6_file, self.result_file)
         
@@ -62,7 +62,7 @@ class CloudflareSpeedTestService:
             if not os.path.exists(path):
                 continue
             if os.access(path, os.X_OK):
-                logger.debug("[CFST] 使用CloudflareSpeedTest: %s", path)
+                logger.debug("[CFST] CloudflareSpeedTest路径: %s", path)
                 return path
             # 文件存在但缺少可执行权限（常见于从压缩包/Windows 解压到仓库），当场修复后使用
             logger.warning("[CFST] cfst 文件存在但缺少可执行权限，正在修复: %s", path)
@@ -150,7 +150,6 @@ class CloudflareSpeedTestService:
             with open(file_path, 'r') as f:
                 content = f.read()
                 line_count = len(content.splitlines())
-                logger.debug("[CFST] IP文件内容长度: %s 字节, %s 行", len(content), line_count)
                 if len(content) < 10 or line_count < 2:
                     logger.warning("[CFST] IP文件内容可能无效，将创建默认IP文件")
                     self._create_default_ip_file()

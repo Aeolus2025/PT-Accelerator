@@ -1,10 +1,5 @@
 """操作日志。
 
-每个用户操作记一条，格式为 `[OP] 动作 结果=成功 字段=值 ...`。
-动作名与字段名由调用点直接写中文，本模块不做翻译。
-
-只记录操作本身与结果，不接收密码、密钥、令牌这类凭据——
-调用点本来就不该传，也不给它们留兜底逻辑。
 """
 
 import logging
@@ -53,7 +48,9 @@ def _render(key: str, value: Any) -> Optional[str]:
         return f"{key}={int(value)}ms"
     if isinstance(value, bool):
         return f"{key}={'是' if value else '否'}"
-    return f"{key}={value}"
+    text = str(value)
+    # 含空格的值加引号，否则键值边界无法切分（如 cron 表达式）
+    return f'{key}="{text}"' if " " in text else f"{key}={text}"
 
 
 def log_op(
