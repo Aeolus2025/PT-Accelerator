@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Depends, Form, status
+from fastapi import FastAPI, HTTPException, Request, Depends, Form, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, JSONResponse
@@ -174,6 +174,8 @@ torrent_client_manager = TorrentClientManager(_startup_config)
 from app.globals import init_services
 init_services(hosts_manager, cloudflare_service, scheduler_service, torrent_client_manager, _startup_config)
 
+from app.api.deps import require_login
+
 # 注册路由 - 在服务初始化之后导入
 from app.api.routers import config as config_router
 from app.api.routers import auth as auth_router
@@ -185,15 +187,18 @@ from app.api.routers import clients as clients_router
 from app.api.routers import notify as notify_router
 from app.api.routers import logs as logs_router
 
-app.include_router(config_router.router, prefix="/api", tags=["config"])
-app.include_router(auth_router.router, prefix="/api", tags=["auth"])
-app.include_router(tasks_router.router, prefix="/api", tags=["tasks"])
-app.include_router(cloudflare_router.router, prefix="/api", tags=["cloudflare"])
-app.include_router(trackers_router.router, prefix="/api", tags=["trackers"])
-app.include_router(hosts_router.router, prefix="/api", tags=["hosts"])
-app.include_router(clients_router.router, prefix="/api", tags=["clients"])
-app.include_router(notify_router.router, prefix="/api", tags=["notify"])
-app.include_router(logs_router.router, prefix="/api", tags=["logs"])
+# 除登录页与静态资源外，所有接口都要求登录。
+# 认证未启用时 require_login 放行 guest，行为与改造前一致。
+_GUARDED = [Depends(require_login)]
+app.include_router(config_router.router, prefix="/api", tags=["config"], dependencies=_GUARDED)
+app.include_router(auth_router.router, prefix="/api", tags=["auth"], dependencies=_GUARDED)
+app.include_router(tasks_router.router, prefix="/api", tags=["tasks"], dependencies=_GUARDED)
+app.include_router(cloudflare_router.router, prefix="/api", tags=["cloudflare"], dependencies=_GUARDED)
+app.include_router(trackers_router.router, prefix="/api", tags=["trackers"], dependencies=_GUARDED)
+app.include_router(hosts_router.router, prefix="/api", tags=["hosts"], dependencies=_GUARDED)
+app.include_router(clients_router.router, prefix="/api", tags=["clients"], dependencies=_GUARDED)
+app.include_router(notify_router.router, prefix="/api", tags=["notify"], dependencies=_GUARDED)
+app.include_router(logs_router.router, prefix="/api", tags=["logs"], dependencies=_GUARDED)
 
 # 提供 favicon.ico 文件
 @app.get("/favicon.ico")
@@ -277,22 +282,37 @@ async def logout(request: Request):
     response = RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
     return response
 
-# 主页
-@app.get("/", response_class=HTMLResponse)
-async def home(request: Request, current_user: Optional[User] = Depends(get_current_user)):
-    # 实时读取最新配置，而不是使用全局变量
+# 每个板块一个路径，刷新/书签/前进后退都能回到对应页
+SECTION_SLUGS = ("dashboard", "trackers", "hosts", "clients", "notify", "logs", "auth")
+
+
+def _render_index(request: Request, current_user):
+    """渲染主页面；认证已启用且未登录时跳登录页。"""
     from app.auth import load_current_config
     current_config = load_current_config()
-    
+
     if current_config.get("auth", {}).get("enable") and not current_user:
         return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
-    
-    # 如果认证未启用，或者用户已登录，则显示主页
-    # 确保传递最新的 config 到模板
+
     return templates.TemplateResponse(
-        "index.html", 
+        "index.html",
         {"request": request, "config": current_config, "current_user": current_user, "version": get_version()}
     )
+
+
+# 控制面板有独立路径，根路径直接跳过去
+@app.get("/", response_class=HTMLResponse)
+async def home():
+    return RedirectResponse(url="/dashboard", status_code=status.HTTP_302_FOUND)
+
+
+# 板块路径。必须定义在 /login、/logout、/favicon.ico 之后，否则会先被这条吃掉
+@app.get("/{page}", response_class=HTMLResponse)
+async def section_page(page: str, request: Request,
+                       current_user: Optional[User] = Depends(get_current_user)):
+    if page not in SECTION_SLUGS:
+        raise HTTPException(status_code=404, detail="页面不存在")
+    return _render_index(request, current_user)
 
 # 运行时更新配置
 def _log_boot_summary():

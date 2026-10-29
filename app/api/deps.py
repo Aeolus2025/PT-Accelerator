@@ -1,9 +1,13 @@
 """路由层共享的配置读取与常量。"""
 
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Optional
 
+from fastapi import Depends, HTTPException, status
+
+from app.auth import get_current_user
 from app.core import config_store
 from app.core.constants import CONFIG_PATH
+from app.models import User
 
 
 def get_file_config() -> Dict[str, Any]:
@@ -28,3 +32,17 @@ def save_config_and_sync(change: Callable[[Dict[str, Any]], Any]) -> None:
     hosts_manager = get_hosts_manager()
     if hosts_manager is not None:
         hosts_manager.reload_whitelist()
+
+
+async def require_login(current_user: Optional[User] = Depends(get_current_user)) -> User:
+    """要求已登录。
+
+    认证未启用时 get_current_user 返回 guest，这里直接放行；
+    启用后未登录会拿到 None，返回 401，前端 api.js 统一跳登录页。
+    """
+    if current_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="未登录或登录已失效",
+        )
+    return current_user

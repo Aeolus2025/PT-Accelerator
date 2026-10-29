@@ -19,7 +19,7 @@ router = APIRouter()
 
 
 # 更新认证配置
-@router.post("/auth/config", dependencies=[Depends(get_current_user)])
+@router.post("/auth/config")   # 登录校验由 main.py 的路由级依赖统一负责
 async def update_auth_config(
     request: Request,
     enable_auth: bool = Form(None),
@@ -64,7 +64,7 @@ async def _update_auth_config_locked(
     if enable_auth is not None and enable_auth != auth_settings.get("enable"):
         auth_settings["enable"] = enable_auth
         config_changed = True
-        logger.info("[AUTH] 登录认证已 %s", '启用' if enable_auth else '禁用')
+        logger.info("[AUTH] 登录认证已%s", '启用' if enable_auth else '禁用')
 
     if username and username != auth_settings.get("username"):
         auth_settings["username"] = username
@@ -118,9 +118,8 @@ async def _update_auth_config_locked(
             
             # 重新加载全局配置，确保认证配置变更立即生效
             from app.auth import reload_global_config
-            if reload_global_config():
-                logger.info("[AUTH] 全局配置已重新加载，认证配置变更立即生效")
-            else:
+            # reload_global_config 自己会记一条，这里只在失败时补一条
+            if not reload_global_config():
                 logger.warning("[AUTH] 全局配置重新加载失败，部分功能可能需要重启才能生效")
             
             # 重要：如果认证相关配置发生变化，清除当前session，强制重新登录
@@ -139,8 +138,8 @@ async def _update_auth_config_locked(
                 message += " 为确保配置立即生效，您已自动登出，请重新登录。"
             
             log_op("更新认证", 目标=auth_settings.get("username"),
-                   enabled=auth_settings.get("enable"),
-                   password_changed=bool(new_password))
+                   启用=auth_settings.get("enable"),
+                   改密码=bool(new_password))
             return {"message": message}
         except Exception as e:
             logger.exception("[AUTH] 更新认证配置失败: %s", str(e))

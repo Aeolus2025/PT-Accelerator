@@ -34,7 +34,7 @@
 
         function needsCurrentPassword() {
             var checkbox = el('enable-auth');
-            return !!(checkbox && checkbox.checked && initialAuthConfig && initialAuthConfig.password_hash);
+            return !!(checkbox && checkbox.checked && initialAuthConfig && initialAuthConfig.password_set);
         }
 
         function validateConfirm() {
@@ -253,7 +253,7 @@
                 showError('密码验证失败', '新密码与确认密码不匹配', getErrorSuggestion('密码不匹配'));
                 return;
             }
-            if (checkbox && checkbox.checked && initialAuthConfig.password_hash && !currentPassword) {
+            if (checkbox && checkbox.checked && initialAuthConfig.password_set && !currentPassword) {
                 showError('身份验证需要', '修改密码需要输入当前密码', getErrorSuggestion('需要提供当前密码'));
                 var currentInput = el('current-password');
                 if (currentInput) currentInput.focus();

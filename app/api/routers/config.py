@@ -28,11 +28,12 @@ async def read_config():
     """
     config = get_file_config()
 
-    # auth.secret_key 是 session 的签名密钥，前端从不使用它。
-    # 一旦通过接口下发，任何能访问本服务的人都能用它离线伪造管理员会话。
+    # secret_key 能伪造管理员会话，password_hash 能离线爆破密码，两者都不下发。
+    # 前端只需要知道「有没有设过密码」，用布尔值表达就够了。
     auth_section = config.get("auth")
     if isinstance(auth_section, dict):
         auth_section.pop("secret_key", None)
+        auth_section["password_set"] = bool(auth_section.pop("password_hash", None))
 
     return config
 

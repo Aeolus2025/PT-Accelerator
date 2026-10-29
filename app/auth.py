@@ -40,17 +40,7 @@ def generate_initial_password(username: str) -> str:
     """
     password = secrets.token_urlsafe(12)
 
-    # 同时走 print 与 logging：容器里常只看得到 stdout
-    print("=" * 60)
-    print("重要：管理员密码已自动生成")
-    print(f"用户名: {username}")
-    print(f"密码: {password}")
-    print("请妥善保存此密码，登录后请立即修改")
-    print("=" * 60)
-
-    # 密码只走 stdout，不写入日志文件：日志会被页面展示，也会长期留在磁盘
-    logger.warning("[AUTH] 管理员密码尚未设置，已生成初始密码")
-    logger.warning("[AUTH] 用户名=%s 密码请在容器标准输出中查看", username)
+    logger.warning("[AUTH] 未设置管理员密码，已生成初始密码 用户名=%s 密码=%s", username, password)
     logger.warning("[AUTH] 登录后请立即在「安全与认证」中修改密码")
     return password
 
