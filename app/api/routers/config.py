@@ -13,6 +13,7 @@ from app.services.hosts_manager import HostsManager
 from app.services.scheduler import SchedulerService
 from app.core import config_store
 from app.utils.oplog import log_op
+from app.services import cfst_params
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,11 @@ def _log_config_change(before, request_config, changed_sections):
             return
 
     changed = _diff_keys(before, request_config)
-    log_op("更新配置", 变更项=",".join(changed) or "无")
+    if not changed:
+        # 点了保存但值没变（前端整节提交时很常见），不必写一条「变更项=无」的噪音
+        logger.debug("[CONFIG] 配置未发生变化，跳过操作日志")
+        return
+    log_op("更新配置", 变更项=",".join(changed))
 
 
 @router.post("/config")
@@ -101,6 +106,17 @@ async def update_config(
             cron_expr = (request_config.get("cloudflare") or {}).get("cron", "0 0 * * *")
             if not croniter.is_valid(cron_expr):
                 raise HTTPException(status_code=400, detail="CRON表达式无效，请检查格式")
+
+        # 优选参数校验：cfst 对非法参数会直接打印帮助并退出，
+        # 所以必须在保存时就挡住，不能等到跑任务才发现。
+        if "cfst" in request_config:
+            section = request_config.get("cfst")
+            if not isinstance(section, dict):
+                raise HTTPException(status_code=400, detail="优选参数格式错误：cfst 必须是键值对象")
+            cfst_errors = cfst_params.validate(section)
+            if cfst_errors:
+                raise HTTPException(status_code=400, detail="；".join(cfst_errors))
+            request_config["cfst"] = cfst_params.normalize(section)
 
         # 提交的节名要先记下来：mutate 之后 config_data 会变成完整配置
         changed_sections = sorted(request_config)

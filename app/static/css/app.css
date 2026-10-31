@@ -326,3 +326,29 @@ body {
 .version-link:active {
     transform: scale(0.98);
 }
+
+/* 优选设置：官方说明的悬浮图标与气泡宽度 */
+.cfst-official {
+    color: #8a94a6;
+    cursor: help;
+    /* 与前面的 -n 徽标拉开距离：徽标自带内边距，margin 太小会显得贴在一起 */
+    margin-left: 0.6rem;
+    font-size: 0.9em;
+    vertical-align: -0.08em;
+}
+
+.cfst-official:hover,
+.cfst-official:focus {
+    color: var(--primary-color);
+    outline: none;
+}
+
+.cfst-popover {
+    --bs-popover-max-width: 420px;
+    max-width: 420px;
+}
+
+.cfst-popover .popover-body {
+    font-size: 0.85rem;
+    line-height: 1.5;
+}

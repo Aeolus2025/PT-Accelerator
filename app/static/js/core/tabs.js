@@ -14,6 +14,7 @@
         'trackers-tab': '/trackers',
         'hosts-tab': '/hosts',
         'clients-tab': '/clients',
+        'cfst-tab': '/cfst',
         'notify-tab': '/notify',
         'logs-tab': '/logs',
         'auth-settings-tab': '/auth'

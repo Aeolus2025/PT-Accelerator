@@ -46,6 +46,11 @@
                 </button>
             </li>
             <li class="nav-item" role="presentation">
+                <button class="nav-link" id="cfst-tab" data-bs-toggle="tab" data-bs-target="#cfst" type="button" role="tab" aria-controls="cfst" aria-selected="false">
+                    <i class="bi bi-sliders me-1"></i>优选设置
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
                 <button class="nav-link" id="notify-tab" data-bs-toggle="tab" data-bs-target="#notify-settings" type="button" role="tab" aria-controls="notify-settings" aria-selected="false">
                     <i class="bi bi-bell me-1"></i>通知设置
                 </button>
@@ -264,6 +269,40 @@
                 </div>
             </div>
             
+            <!-- 优选设置：CloudflareSpeedTest 命令行参数 -->
+            <div class="tab-pane fade" id="cfst" role="tabpanel" aria-labelledby="cfst-tab">
+                <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center mb-3">
+                    <h5 class="mb-3 mb-md-0"><i class="bi bi-sliders me-2"></i>优选设置</h5>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-warning action-btn" id="btn-reset-cfst">
+                            <i class="bi bi-arrow-counterclockwise"></i>恢复默认
+                        </button>
+                        <button type="button" class="btn btn-secondary action-btn" id="btn-preview-cfst">
+                            <i class="bi bi-terminal"></i>查看命令
+                        </button>
+                        <button type="button" class="btn btn-success action-btn" id="btn-run-cfst">
+                            <i class="bi bi-play-fill"></i>立即运行
+                        </button>
+                        <button type="button" class="btn btn-primary action-btn" id="btn-save-cfst">
+                            <i class="bi bi-check-lg"></i>保存
+                        </button>
+                    </div>
+                </div>
+
+                <div class="alert alert-info py-2 small">
+                    这里的参数直接决定 <code>cfst</code> 怎么跑。默认值沿用现有优选行为（仅测延迟），
+                    其余与 cfst 官方默认一致；改动后请点「保存」，下一次优选（手动或定时）生效。
+                </div>
+
+                <div class="alert alert-warning py-2 small">
+                    <i class="bi bi-exclamation-triangle-fill me-1"></i>如果你不知道配置有什么用，请使用默认参数！
+                </div>
+
+                <div id="cfst-form">
+                    <!-- 表单按 #cfst-schema 的规格由 cfst.js 渲染 -->
+                </div>
+            </div>
+
             <!-- 日志 -->
             <div class="tab-pane fade" id="logs-panel" role="tabpanel" aria-labelledby="logs-tab">
                 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -521,6 +560,29 @@
     </div>
     
     <!-- 错误提示模态框 -->
+    <!-- 优选设置：等效命令行 -->
+    <div class="modal fade" id="cfstCommandModal" tabindex="-1" aria-labelledby="cfstCommandModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="cfstCommandModalLabel">
+                        <i class="bi bi-terminal me-2"></i>等效命令行
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                </div>
+                <div class="modal-body">
+                    <pre id="cfst-command-text" class="mb-2 small" style="white-space: pre-wrap; word-break: break-all;"></pre>
+                    <div class="form-text">
+                        在对应架构目录下执行即可复现同一组参数；<code>-p 0 -f -o</code> 由系统固定，不随参数变化。
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="modal fade" id="errorModal" tabindex="-1" aria-labelledby="errorModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
@@ -1131,6 +1193,8 @@ X-Custom: value"></textarea>
     <!-- 将后端配置作为纯 JSON 安全嵌入，避免转义与语法高亮器误判。
          必须放在所有脚本之前：store.js 加载时就要读它做首屏初始值 -->
     <script id="app-config" type="application/json">{{ config | tojson | safe }}</script>
+    <!-- 优选参数的字段规格（默认值/范围/中文说明/官方原文），由后端单一事实来源生成 -->
+    <script id="cfst-schema" type="application/json">{{ cfst_schema | tojson | safe }}</script>
 
     <script src="/static/js/vendor/jquery.min.js?v={{ app_version }}"></script>
     <script src="/static/js/vendor/bootstrap.bundle.min.js?v={{ app_version }}"></script>
@@ -1144,6 +1208,7 @@ X-Custom: value"></textarea>
     <script src="/static/js/pages/hosts.js?v={{ app_version }}"></script>
     <script src="/static/js/pages/logs.js?v={{ app_version }}"></script>
     <script src="/static/js/pages/clients.js?v={{ app_version }}"></script>
+    <script src="/static/js/pages/cfst.js?v={{ app_version }}"></script>
     <script src="/static/js/pages/notify.js?v={{ app_version }}"></script>
     <script src="/static/js/pages/auth.js?v={{ app_version }}"></script>
     <script src="/static/js/main.js?v={{ app_version }}"></script>

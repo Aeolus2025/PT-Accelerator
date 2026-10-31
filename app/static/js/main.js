@@ -14,6 +14,7 @@
         global.hostsPage.init();
         global.logsPage.init();
         global.clientsPage.init();
+        global.cfstPage.init();
         global.notifyPage.initNotifySettings();
         global.authPage.initAuthSettings();
 

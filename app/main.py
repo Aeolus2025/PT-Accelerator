@@ -15,6 +15,7 @@ from typing import Optional
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.services.cfst import CloudflareSpeedTestService
+from app.services import cfst_params
 from app.services.hosts_manager import HostsManager
 from app.services.scheduler import SchedulerService
 from app.services.torrent_clients import TorrentClientManager
@@ -85,12 +86,40 @@ def load_config():
 
         for key, value in DEFAULT_CONFIG.items():
             if key not in current_config:
+                # 新版本新增的顶层节：补进内存后要落盘，否则重启又得再补一次
                 current_config[key] = value
-        
+                need_save_after_load = True
+                logger.info("[BOOT] 补齐配置默认节 名称=%s", key)
+
+        # cfst 是后加的节，老配置里不会有；而上面的循环只补顶层键，
+        # 这里再补一次节内缺失的参数，避免新版本新增参数后老配置取不到值。
+        cfst_section = current_config.get("cfst")
+        if not isinstance(cfst_section, dict):
+            current_config["cfst"] = cfst_params.defaults()
+            need_save_after_load = True
+        else:
+            missing = {k: v for k, v in cfst_params.defaults().items() if k not in cfst_section}
+            if missing:
+                cfst_section.update(missing)
+                need_save_after_load = True
+                logger.info("[BOOT] 补齐优选参数默认值 数量=%s", len(missing))
+
         if "cloudflare" in current_config:
             if "ipv4" in current_config["cloudflare"]:
                 logger.info("[BOOT] 移除废弃配置 字段=cloudflare.ipv4")
                 del current_config["cloudflare"]["ipv4"]
+                need_save_after_load = True
+            # additional_args 从来没接入执行链，参数已改由 cfst 节管理
+            if "additional_args" in current_config["cloudflare"]:
+                legacy = current_config["cloudflare"].get("additional_args")
+                if legacy:
+                    logger.warning(
+                        "[BOOT] 废弃配置 cloudflare.additional_args=%r 不再生效，"
+                        "请在「优选设置」页或 cfst 节中逐项配置", legacy,
+                    )
+                else:
+                    logger.info("[BOOT] 移除废弃配置 字段=cloudflare.additional_args")
+                del current_config["cloudflare"]["additional_args"]
                 need_save_after_load = True
         
         if need_save_after_load:
@@ -184,6 +213,7 @@ from app.api.routers import cloudflare_domains as cloudflare_router
 from app.api.routers import trackers as trackers_router
 from app.api.routers import hosts as hosts_router
 from app.api.routers import clients as clients_router
+from app.api.routers import cfst as cfst_router
 from app.api.routers import notify as notify_router
 from app.api.routers import logs as logs_router
 
@@ -197,6 +227,7 @@ app.include_router(cloudflare_router.router, prefix="/api", tags=["cloudflare"],
 app.include_router(trackers_router.router, prefix="/api", tags=["trackers"], dependencies=_GUARDED)
 app.include_router(hosts_router.router, prefix="/api", tags=["hosts"], dependencies=_GUARDED)
 app.include_router(clients_router.router, prefix="/api", tags=["clients"], dependencies=_GUARDED)
+app.include_router(cfst_router.router, prefix="/api", tags=["cfst"], dependencies=_GUARDED)
 app.include_router(notify_router.router, prefix="/api", tags=["notify"], dependencies=_GUARDED)
 app.include_router(logs_router.router, prefix="/api", tags=["logs"], dependencies=_GUARDED)
 
@@ -283,7 +314,7 @@ async def logout(request: Request):
     return response
 
 # 每个板块一个路径，刷新/书签/前进后退都能回到对应页
-SECTION_SLUGS = ("dashboard", "trackers", "hosts", "clients", "notify", "logs", "auth")
+SECTION_SLUGS = ("dashboard", "trackers", "hosts", "clients", "cfst", "notify", "logs", "auth")
 
 
 def _render_index(request: Request, current_user):
@@ -296,7 +327,14 @@ def _render_index(request: Request, current_user):
 
     return templates.TemplateResponse(
         "index.html",
-        {"request": request, "config": current_config, "current_user": current_user, "version": get_version()}
+        {
+            "request": request,
+            "config": current_config,
+            "current_user": current_user,
+            "version": get_version(),
+            # 优选设置页的字段规格：默认值、范围、中文说明、官方原文都从这里来
+            "cfst_schema": cfst_params.schema(),
+        }
     )
 
 

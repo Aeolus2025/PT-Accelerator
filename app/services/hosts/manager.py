@@ -24,11 +24,13 @@ from app.services.cloudflare.detector import CloudflareDetector
 from app.services.domain_service import strip_port as _strip_port
 from app.services.hosts.sources import HostsSourceFetcher, is_blacklisted
 from app.services.hosts.store import HostsStore
+from app.services import cfst_params
 
 logger = logging.getLogger(__name__)
 
-# 优选脚本的硬超时；跑飞了也不能让 task_running 永远为 True
-CFST_SCRIPT_TIMEOUT = 900
+# 优选脚本的超时基线。实际超时按本轮 cfst 参数动态放宽（启用下载测速、全量测速
+# 都会显著变慢），由 cfst_params.timeout_seconds() 计算，见 _run_cfst_script。
+CFST_SCRIPT_TIMEOUT = cfst_params.TIMEOUT_BASE
 
 # 任务状态在 registry 中的登记名
 TASK_NAME = "hosts"
@@ -376,13 +378,58 @@ class HostsManager:
             return False
 
 
+    @staticmethod
+    def _cfst_result_path(script_path: str) -> str:
+        """优选结果文件固定在脚本同目录；执行前清理与结果读取共用同一路径。"""
+        return os.path.join(os.path.dirname(os.path.abspath(script_path)), "result_hosts.txt")
+
+    @staticmethod
+    def _output_tail(result, lines: int = 20, width: int = 200) -> str:
+        """把 stdout/stderr 尾部拼成一段可读文本。
+
+        cfst 遇到非法参数会直接打印帮助并退出，这条线索只会出现在 stdout，
+        而 capture_output 之后它本来是被丢掉的。
+        """
+        chunks = []
+        for stream in (getattr(result, "stdout", "") or "", getattr(result, "stderr", "") or ""):
+            for line in stream.splitlines():
+                text = line.strip()
+                if text:
+                    chunks.append(text[:width])
+        return "\n".join(chunks[-lines:])
+
+    @staticmethod
+    def _short_reason(text: str, limit: int = 300) -> str:
+        """压成一行，供任务状态与通知展示。"""
+        one_line = " ".join((text or "").split())
+        return one_line[:limit]
+
+    def _warn_if_speed_all_zero(self, lines: List[str]):
+        """启用下载测速却全为 0，通常是测速地址失效，排序已退化成按延迟。"""
+        params = self._config().get("cfst") or {}
+        if bool(params.get("dd", False)):
+            return
+        speeds = []
+        for line in lines[1:]:
+            cols = line.split(",")
+            if len(cols) >= 6:
+                try:
+                    speeds.append(float(cols[5]))
+                except ValueError:
+                    continue
+        if speeds and max(speeds) <= 0:
+            logger.warning(
+                "[CFST] 下载速度全为 0，测速地址可能不可用 地址=%s 结果已退化为按延迟排序",
+                params.get("url"),
+            )
+
     def _read_best_ip_from_result(self, script_path: str) -> Optional[str]:
         """读取优选脚本落盘的结果文件，取 IP 列的第一行。
 
         cfst 的 -o 输出是 CSV，首行为表头（IP地址,已发送,已接收,丢包率,平均延迟,下载速度,...），
-        正常直接读第 2 行第 1 列，不依赖脚本的中文输出文案。
+        直接读第 2 行第 1 列：无论按延迟还是按下载速度排序，第一行都是当前排序下的最优 IP。
         """
-        result_path = os.path.join(os.path.dirname(os.path.abspath(script_path)), "result_hosts.txt")
+        result_path = self._cfst_result_path(script_path)
         if not os.path.exists(result_path):
             logger.error("[HOSTS] 未找到优选结果文件: %s", result_path)
             return None
@@ -395,13 +442,15 @@ class HostsManager:
             return None
 
         if len(lines) < 2:
-            logger.error("[HOSTS] 优选结果文件无数据行: %s", result_path)
+            logger.error("[HOSTS] 优选结果文件只有表头，没有 IP 通过筛选: %s", result_path)
             return None
 
         best_ip = lines[1].split(",")[0].strip()
         if not best_ip:
             logger.error("[CFST] 结果文件无有效IP 原始=%r", lines[1])
             return None
+
+        self._warn_if_speed_all_zero(lines)
         return best_ip
 
     def add_cloudflare_ip(self, domain: str, ip: str):
@@ -519,31 +568,58 @@ class HostsManager:
             return None
 
         task_registry.start(TASK_NAME, "正在运行Cloudflare优选脚本")
+
+        # 参数从配置读取；手改坏的项回退默认并告警，不让定时任务整晚失败
+        params, warns = cfst_params.resolve(self._config().get("cfst"))
+        for warn in warns:
+            logger.warning("[CFST] 参数回退 %s", warn)
+        args = cfst_params.build_args(params)
+        timeout = cfst_params.timeout_seconds(params)
+        logger.info(
+            "[CFST] 执行优选 脚本=%s 超时=%ss 参数=%s",
+            script_path, timeout, " ".join(args) or "(全部默认)",
+        )
+
+        # 必须先删上一轮结果：设了延迟/速度筛选后可能一个 IP 都选不出来，
+        # cfst 不写文件，残留的旧文件会让上层把过期 IP 当成本轮结果写进 hosts。
+        result_path = self._cfst_result_path(script_path)
         try:
-            # 脚本会全套跑一遍测速，正常几分钟；给足上限防止挂死后永久占用 task_running
+            if os.path.exists(result_path):
+                os.remove(result_path)
+        except OSError as e:
+            logger.warning("[CFST] 删除历史结果文件失败: %s", e)
+
+        try:
+            # 参数以位置参数传给脚本，由脚本转发给 cfst：不经过 shell 二次解析，
+            # 含空格的测速地址也能保持为一个参数。
             result = subprocess.run(
-                ["bash", script_path],
+                ["bash", script_path, *args],
                 capture_output=True,
                 text=True,
-                timeout=CFST_SCRIPT_TIMEOUT,
+                timeout=timeout,
             )
         except subprocess.TimeoutExpired:
-            logger.exception("[HOSTS] 优选脚本执行超时（%ss），流程中止", CFST_SCRIPT_TIMEOUT)
-            task_registry.finish(TASK_NAME, f"优选失败: 脚本执行超时（{CFST_SCRIPT_TIMEOUT}s）")
+            logger.exception("[HOSTS] 优选脚本执行超时（%ss），流程中止", timeout)
+            task_registry.finish(TASK_NAME, f"优选失败: 脚本执行超时（{timeout}s）")
             self.task_running = False
             return None
 
         if result.returncode != 0:
-            logger.error("[HOSTS] 脚本退出码 %s: %s", result.returncode, result.stderr)
-            task_registry.finish(TASK_NAME, f"优选失败: 脚本退出码 {result.returncode}")
+            tail = self._output_tail(result)
+            logger.error("[HOSTS] 脚本退出码 %s\n%s", result.returncode, tail or "(无输出)")
+            reason = self._short_reason(tail) or f"脚本退出码 {result.returncode}"
+            task_registry.finish(TASK_NAME, f"优选失败: {reason}")
             self.task_running = False
             return None
 
         # 优先读脚本落盘的结果文件，比自己解析中文 stdout 可靠得多
         best_ip = self._read_best_ip_from_result(script_path)
         if not best_ip:
+            tail = self._output_tail(result)
+            if tail:
+                logger.warning("[CFST] 脚本输出尾部\n%s", tail)
             logger.error("[HOSTS] 未能从脚本输出中提取到最优IP，流程中止")
-            task_registry.finish(TASK_NAME, "优选失败: 未能提取到最优IP")
+            task_registry.finish(TASK_NAME, "优选失败: 未能提取到最优IP（可能没有 IP 满足筛选条件）")
             self.task_running = False
             return None
         return best_ip

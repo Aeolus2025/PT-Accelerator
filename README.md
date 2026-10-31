@@ -7,6 +7,7 @@
 ## 功能亮点
 
 - **Cloudflare IP优选**：集成CloudflareSpeedTest，自动定时优选全球最快Cloudflare IP，极大提升PT站点和GitHub等访问速度。
+- **优选参数可调**：cfst 的线程数、测速端口、延迟/丢包筛选、下载测速开关等 16 项参数可在界面调整，支持命令预览与一键试跑。
 - **架构自适应支持**：完美支持AMD64和ARM64架构，自动检测并选择对应的CloudflareSpeedTest可执行文件和配置文件。
 - **PT Tracker批量管理**：支持批量添加、批量清空、批量导入、单个删除、状态切换等操作，Tracker管理极致高效。
 - **下载器一键导入**：支持qBittorrent、Transmission等主流下载器，自动导入Tracker列表并智能筛选Cloudflare站点。
@@ -226,9 +227,13 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port ${APP_PORT:-23333}
   - `enable`：是否启用Cloudflare IP优选
   - `cron`：定时任务Cron表达式（默认每天0点）
   - `ipv6`：是否启用IPv6测速
-  - `additional_args`：CloudflareST额外参数
   - `notify`：是否开启通知
-  
+
+- `cfst`：CloudflareSpeedTest 命令行参数（在「优选设置」页配置）
+  - 共 16 项，含线程数、测速端口、延迟/丢包筛选、下载测速开关等
+  - 每项的默认值、取值范围与调整建议见 `docs/cfst-params.md`
+  - 旧版的 `cloudflare.additional_args` 已废弃，启动时会自动迁移并告警
+
 - `cloudflare_domains`：Cloudflare白名单域名列表（需要优化的域名）
 
 - `hosts_sources`：外部Hosts源列表
@@ -280,6 +285,8 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port ${APP_PORT:-23333}
 
 - 已内置CloudflareST二进制和测速脚本，自动调用，无需手动操作
 - **架构自适应**：自动检测系统架构（AMD64/ARM64），选择对应的可执行文件和配置文件
+- **参数可配置**：在 Web 界面「优选设置」页调整 cfst 命令行参数（线程数、测速端口、延迟/丢包筛选、是否下载测速等），
+  每项都标注了默认值、取值范围与官方说明；也可直接改 `config.yaml` 的 `cfst` 节，详见 `docs/cfst-params.md`
 - 相关参数和测速数据文件（ip.txt/ipv6.txt）可在对应架构目录下自定义：
   - AMD64架构：`cfst_linux_amd64/` 目录
   - ARM64架构：`cfst_linux_arm64/` 目录

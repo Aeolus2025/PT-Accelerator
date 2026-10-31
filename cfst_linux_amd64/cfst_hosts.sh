@@ -13,6 +13,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 cd "$SCRIPT_DIR" || exit 1
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"; }
 
+# cfst 的额外参数由 Python 侧按「优选设置」生成，以位置参数传入。
+# 必须放在顶层：写进 _UPDATE() 里的话，$@ 会变成函数自己的参数（空），参数永远传不进去。
+EXTRA_ARGS=("$@")
+
 _CHECK() {
     # nowip_hosts.txt 记录"上一次写入 hosts 的 IP"，用于下次做旧 IP -> 新 IP 的替换。
     # 该文件已从版本库移除（属于运行时状态，见 .gitignore），因此首次运行时可能不存在。
@@ -98,13 +102,22 @@ EOL
     fi
     log "使用IP文件: $IP_FILE"
 
-    # 运行 cfst（延迟优先，静默输出，指定IP文件，结果写入）
-    log "执行命令: $CFST_PATH -dd -p 0 -f $IP_FILE -o result_hosts.txt"
-    $CFST_PATH -dd -p 0 -f "$IP_FILE" -o "result_hosts.txt"
+    # 运行 cfst（额外参数由 Python 侧按「优选设置」生成并传入）
+    log "执行命令: $CFST_PATH -p 0 -f $IP_FILE -o result_hosts.txt ${EXTRA_ARGS[*]}"
+    $CFST_PATH -p 0 -f "$IP_FILE" -o "result_hosts.txt" "${EXTRA_ARGS[@]}"
     CFST_EXIT_CODE=$?
     log "cfst 退出代码: $CFST_EXIT_CODE"
+    # 退出码必须显式传递：脚本结尾是两个函数调用，不 exit 的话退出码恒为 0，
+    # 参数非法时 Python 会误判成脚本执行成功。
+    if [[ $CFST_EXIT_CODE -ne 0 ]]; then
+        log "cfst 执行失败（可能是参数非法），输出见上方"
+        exit $CFST_EXIT_CODE
+    fi
 
-    [[ ! -e "result_hosts.txt" ]] && log "CFST 测速结果 IP 数量为 0，跳过下面步骤..." && exit 0
+    if [[ ! -e "result_hosts.txt" ]]; then
+        log "CFST 测速结果 IP 数量为 0，跳过下面步骤..."
+        exit 3
+    fi
 
     BESTIP=$(sed -n "2,1p" result_hosts.txt | awk -F, '{print $1}')
     if [[ -z "${BESTIP}" ]]; then

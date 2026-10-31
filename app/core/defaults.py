@@ -4,6 +4,7 @@
 """
 
 from app.core.constants import DEFAULT_CLOUDFLARE_IP
+from app.services.cfst_params import defaults as cfst_defaults
 
 # 预装的外部 hosts 源：全部默认关闭，用户可在 UI「Hosts源」页按需勾选启用。
 HOSTS_SOURCE_PRESETS = [
@@ -24,9 +25,11 @@ DEFAULT_CONFIG = {
         "enable": True,
         "cron": "0 0 * * *",  # 每天零点运行
         "ipv6": False,
-        "additional_args": "",
         "notify": True
     },
+    # CloudflareSpeedTest 的命令行参数。键与取值的唯一事实来源是
+    # app/services/cfst_params.py，这里只取它的默认值，不要另抄一份。
+    "cfst": cfst_defaults(),
     "trackers": [
         {
             "name": "示例Tracker",
