@@ -306,12 +306,10 @@ class HostsManager:
         sections.extend(self.store._build_merged_section(merged_entries, merged_enabled))
 
         task_registry.start(TASK_NAME, "正在更新系统hosts文件")
-        started = time.perf_counter()
         self.store._update_system_hosts_with_sections(sections)
 
-        total_entries = sum(len(entries) for _, entries, _ in sections)
-        elapsed = int((time.perf_counter() - started) * 1000)
-        return total_entries
+        # 耗时由调用方统计（含收集与优选），这里只负责写入，避免两处重复计时
+        return sum(len(entries) for _, entries, _ in sections)
 
     def _save_backup(self, merged_ips: Dict[str, str], merged_enabled: bool):
         """无启用源时清空备份，否则兜底逻辑会把残留域名捡回来。"""

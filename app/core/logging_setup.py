@@ -44,7 +44,11 @@ DEFAULT_LEVEL = "INFO"
 # 第三方库的常规输出属于噪音，进度由业务代码自己记：
 # - apscheduler / urllib3 逐任务、逐连接刷屏
 # - tzlocal 是 APScheduler 的依赖，创建调度器时会把 /etc/timezone 的探测过程打成 DEBUG
-NOISY_LOGGERS = ("apscheduler", "urllib3", "python_hosts", "tzlocal", "passlib")
+# - multipart 是表单解析器，提交一次表单就逐字段打印 on_field_start 之类的回调轨迹
+NOISY_LOGGERS = (
+    "apscheduler", "urllib3", "python_hosts", "tzlocal", "passlib",
+    "multipart", "python_multipart",
+)
 
 
 def config_level_name() -> Optional[str]:

@@ -1,7 +1,6 @@
 """Tracker 接口：添加、删除、批量添加、清空。"""
 
 import logging
-import re
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 

@@ -139,53 +139,131 @@
         });
     }
 
-    // ---------------------------------------------------------------- 错误建议
+    // ---------------------------------------------------------------- 错误分类
 
-    function getErrorSuggestion(message) {
-        var text = String(message || '');
+    // 表单填错（当前密码错、两次不一致等）是用户自己就能改的问题：
+    // 标红对应输入框即可，不弹窗，也不给「重试」——原样再提交一次必然同样失败。
+    var FIELD_ERRORS = [
+        {
+            match: ['当前密码错误', '当前密码不正确'],
+            field: 'current-password', title: '当前密码错误',
+            hint: '请重新输入当前密码'
+        },
+        {
+            match: ['没有设置密码'],
+            field: 'current-password', title: '当前没有设置密码',
+            hint: '请清空当前密码，只填写新密码'
+        },
+        {
+            match: ['需要提供当前密码', '需要当前密码'],
+            field: 'current-password', title: '需要当前密码',
+            hint: '修改密码前需先验证当前密码'
+        },
+        {
+            match: ['不匹配'],
+            field: 'confirm-password', title: '两次密码不一致',
+            hint: '请确认新密码与确认密码完全相同'
+        },
+        {
+            match: ['长度'],
+            field: 'new-password', title: '密码长度不足',
+            hint: '新密码至少 8 位'
+        },
+        {
+            match: ['强度', '安全要求'],
+            field: 'new-password', title: '密码强度不足',
+            hint: '至少包含大小写字母、数字、特殊字符中的两类'
+        }
+    ];
 
-        function hasAny() {
-            for (var i = 0; i < arguments.length; i++) {
-                if (text.indexOf(arguments[i]) !== -1) return true;
+    var FIELD_FEEDBACK = {
+        'current-password': 'current-password-feedback',
+        'new-password': 'new-password-feedback',
+        'confirm-password': 'confirm-password-feedback'
+    };
+
+    /**
+     * 把请求错误分成三类，决定提示形态：
+     *  - 字段级（4xx 且能对应到某个输入框）：标红该字段，不弹窗
+     *  - 服务端/网络（超时、5xx、请求没发出去）：弹窗，带重试
+     *  - 其他 4xx（403 等）：弹窗，不给重试
+     */
+    function classifyError(error) {
+        var status = error && error.status;
+        var message = String((error && error.message) || '');
+
+        if (error && error.timeout) {
+            return { title: '请求超时', message: '服务器响应超时，请稍后重试', retry: true };
+        }
+
+        // 没有 status：请求根本没到服务端（断网、服务未启动、被代理拦截）
+        if (!status) {
+            return {
+                title: '无法连接服务器',
+                message: message || '请检查网络连接，或确认服务是否正常运行',
+                retry: true
+            };
+        }
+
+        if (status >= 500) {
+            return { title: '服务器处理失败', message: message || '服务端发生错误，详情见系统日志', retry: true };
+        }
+
+        if (status === 403) {
+            return { title: '无权修改', message: message || '当前账户没有修改认证配置的权限', retry: false };
+        }
+
+        for (var i = 0; i < FIELD_ERRORS.length; i++) {
+            var rule = FIELD_ERRORS[i];
+            for (var j = 0; j < rule.match.length; j++) {
+                if (message.indexOf(rule.match[j]) !== -1) {
+                    return {
+                        title: rule.title,
+                        message: message,
+                        hint: rule.hint,
+                        field: rule.field,
+                        retry: false
+                    };
+                }
             }
-            return false;
         }
 
-        if (hasAny('当前密码错误', '当前密码不正确', 'Current password is incorrect',
-                   '密码验证失败', 'Invalid current password', 'password verification failed')) {
-            return '请检查输入的当前密码是否正确，注意大小写和特殊字符。您可以尝试重新输入或使用密码显示功能确认输入内容。';
-        }
-        if (hasAny('密码长度')) {
-            return '新密码必须包含至少8个字符，建议使用大小写字母、数字和特殊字符的组合以提高安全性。';
-        }
-        if (hasAny('密码不匹配', '新密码与确认密码不匹配')) {
-            return '请确保新密码和确认密码输入完全一致。建议使用复制粘贴或密码显示功能来避免输入错误。';
-        }
-        if (hasAny('需要提供当前密码', '修改密码需要')) {
-            return '由于系统已设置密码且认证已启用，修改密码时必须先验证当前密码以确保安全性。';
-        }
-        if (hasAny('密码强度', '不符合安全要求')) {
-            return '密码应包含大小写字母、数字或特殊字符以提高安全性。建议使用至少包含2种类型字符的组合。';
-        }
-        if (hasAny('TOAST: Option "delay"', 'Bootstrap Toast')) {
-            return '页面脚本执行出现问题，请刷新页面后重试。这通常是临时的前端错误。';
-        }
-        if (hasAny('请求失败') && !hasAny('TOAST')) {
-            return '网络连接可能存在问题，请检查网络连接状态后重试。如果问题持续，请检查服务器状态。';
-        }
-        if (hasAny('无权修改', '权限')) {
-            return '您当前没有足够的权限执行此操作，请确认您已正确登录管理员账户。';
-        }
-        if (hasAny('配置更新失败')) {
-            return '配置文件可能被其他进程占用或权限不足，请稍后重试或检查文件权限。';
-        }
-        if (hasAny('系统中没有设置密码')) {
-            return '当前系统中尚未设置密码，请清空当前密码字段，只输入新密码即可完成首次设置。';
-        }
-        return '如果问题持续存在，请查看系统日志获取详细信息或联系管理员寻求帮助。';
+        return {
+            title: '操作未完成',
+            message: message || ('请求被拒绝（HTTP ' + status + '）'),
+            retry: false
+        };
     }
 
-    // ---------------------------------------------------------------- 保存
+    function markFieldInvalid(fieldId, hint) {
+        var input = el(fieldId);
+        if (!input) return;
+
+        input.classList.add('is-invalid');
+        input.classList.remove('is-valid');
+
+        var feedback = el(FIELD_FEEDBACK[fieldId]);
+        if (feedback) feedback.textContent = hint || '';
+
+        input.focus();
+        if (input.select) {
+            try { input.select(); } catch (e) { /* 部分输入类型不支持 select */ }
+        }
+    }
+
+    function reportError(error) {
+        var info = classifyError(error);
+        console.error('[AUTH] 保存失败:', info.title, error);
+
+        if (info.field) {
+            // 字段级问题：只标红 + 一条轻提示，不打断操作
+            markFieldInvalid(info.field, info.hint);
+            ui.showToast(info.hint ? info.title + '：' + info.hint : info.title, 'danger');
+            return;
+        }
+
+        ui.showErrorModal(info.title, info.message, '', info.retry, info.retry ? saveAuthSettings : null);
+    }
 
     function updateAuthUI(authConfig) {
         var checkbox = el('enable-auth');
@@ -228,12 +306,6 @@
         return store.section('auth', initialAuthConfig) || initialAuthConfig;
     }
 
-    function showError(title, message, suggestion, retry) {
-        console.error(title, message);
-        ui.showToast(message, 'danger');
-        ui.showErrorModal(title, message, suggestion || '', !!retry, retry || null);
-    }
-
     async function saveAuthSettings() {
         var form = el('auth-settings-form');
         if (!form) return;
@@ -245,18 +317,25 @@
         var checkbox = el('enable-auth');
 
         if (newPassword) {
-            if (!validatePassword(newPassword).valid) {
-                showError('密码验证失败', '新密码不符合安全要求', getErrorSuggestion('密码强度'));
+            var strength = validatePassword(newPassword);
+            if (!strength.length) {
+                markFieldInvalid('new-password', '密码长度至少需要8位字符');
+                ui.showToast('密码长度至少需要8位字符', 'danger');
+                return;
+            }
+            if (strength.strength < 2) {
+                markFieldInvalid('new-password', '密码强度较弱，建议包含大小写字母、数字或特殊字符');
+                ui.showToast('密码强度较弱，建议包含大小写字母、数字或特殊字符', 'danger');
                 return;
             }
             if (newPassword !== confirmPassword) {
-                showError('密码验证失败', '新密码与确认密码不匹配', getErrorSuggestion('密码不匹配'));
+                markFieldInvalid('confirm-password', '密码不匹配，请重新输入');
+                ui.showToast('新密码与确认密码不匹配', 'danger');
                 return;
             }
             if (checkbox && checkbox.checked && initialAuthConfig.password_set && !currentPassword) {
-                showError('身份验证需要', '修改密码需要输入当前密码', getErrorSuggestion('需要提供当前密码'));
-                var currentInput = el('current-password');
-                if (currentInput) currentInput.focus();
+                markFieldInvalid('current-password', '修改密码需要输入当前密码');
+                ui.showToast('修改密码需要输入当前密码', 'danger');
                 return;
             }
         }
@@ -309,8 +388,7 @@
             ui.showToast(successMsg, 'success');
             clearPasswordFields();
         } catch (error) {
-            var message = (error && error.message) || String(error) || '请求失败';
-            showError('网络请求失败', message, getErrorSuggestion(message), saveAuthSettings);
+            reportError(error);
         } finally {
             if (saveButton) {
                 saveButton.innerHTML = originalText;
@@ -362,7 +440,7 @@
 
     global.authPage = {
         validatePassword: validatePassword,
-        getErrorSuggestion: getErrorSuggestion,
+        classifyError: classifyError,
         saveAuthSettings: saveAuthSettings,
         fetchAuthConfig: fetchAuthConfig,
         initAuthSettings: initAuthSettings
