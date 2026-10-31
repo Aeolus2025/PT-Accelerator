@@ -47,6 +47,18 @@
         if (instance) instance.show();
     }
 
+    // Bootstrap 给 :root 设了 scroll-behavior: smooth，普通的 scrollTo(0,0) 会变成
+    // 一段"滑上去"的动画。显式指定 behavior:'instant' 才是一次性到位；
+    // 行内样式覆盖留给不认 instant 的旧浏览器兜底。
+    function scrollToTop() {
+        if (typeof global.scrollTo !== 'function') return;
+        var style = document.documentElement && document.documentElement.style;
+        var prev = style ? style.scrollBehavior : null;
+        if (style) style.scrollBehavior = 'auto';
+        global.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+        if (style) style.scrollBehavior = prev;
+    }
+
     // 必须在各页面模块 init 之前调用，否则切页的 shown 事件没人接
     function init() {
         var fromPath = tabOf(location.pathname);
@@ -66,6 +78,10 @@
             // 程序化切换（首屏、前进后退）时地址栏已经对了，这里只处理用户点击
             if (location.pathname !== pathOf(id)) {
                 history.pushState({ tab: id }, '', pathOf(id));
+                // 各面板高度相差近 200px（下载器 506px、安全与认证 704px）。不归零的话，
+                // 切到更矮的面板时浏览器会把 scrollY 夹到新上限，页面会突然向上弹一下；
+                // 统一回到顶部，落点固定，也顺手保证导航条可见。
+                scrollToTop();
             }
         });
 
