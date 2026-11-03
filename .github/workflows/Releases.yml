@@ -40,7 +40,8 @@ jobs:
       - name: Lint (pyflakes)
         run: |
           python3 -m pip install --quiet pyflakes
-          python3 -m pyflakes app/
+          python3 -m pyflakes app/ version.py
+          python3 -c "import sys; sys.path.insert(0, '.'); import version; print('version.py 可导入，版本号', version.__version__)"
           echo "pyflakes 通过"
 
       - name: Set up QEMU
