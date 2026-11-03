@@ -206,6 +206,10 @@
     // ---------------------------------------------------------------- 结果弹窗
 
     var successCountdownTimer = null;
+    // 倒计时弹窗开着时，页面马上就要整页刷新了。
+    // 这期间不要再让 401 抢跳登录页（改密码 / 开认证会让 session 立刻失效，
+    // 后台每 5 秒轮询一次的 /api/task-status 会拿到 401，把倒计时打断）。
+    var autoReloadPending = false;
 
     function clearSuccessCountdown() {
         if (successCountdownTimer) {
@@ -272,32 +276,46 @@
         clearSuccessCountdown();
 
         if (typeof countdown === 'number' && countdown > 0 && typeof onDone === 'function') {
-            var remaining = countdown;
+            // 按截止时间戳算剩余秒数，而不是每回调一次减一：
+            // 标签页切到后台时 setInterval 会被节流，按次数递减会让显示与实际时间脱节，
+            // 切回来时可能已经过去好几秒，倒计时却还停在大数字上。
+            var deadline = Date.now() + countdown * 1000;
+            autoReloadPending = true;
+
+            // 倒计时归零和点按钮都走这里，先撤掉标记再执行跳转
+            var finish = function () {
+                autoReloadPending = false;
+                onDone();
+            };
 
             if (confirmBtn) {
                 confirmBtn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>'
                     + escapeHtml(options.confirmText || '立即刷新');
                 confirmBtn.onclick = function () {
                     clearSuccessCountdown();
-                    onDone();
+                    finish();
                 };
             }
 
-            if (countdownEl) {
-                countdownEl.classList.remove('d-none');
-                countdownEl.textContent = remaining + ' 秒后自动刷新…';
-            }
+            var renderCountdown = function () {
+                var left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+                if (countdownEl) countdownEl.textContent = left + ' 秒后自动刷新…';
+                return left;
+            };
 
+            if (countdownEl) countdownEl.classList.remove('d-none');
+            renderCountdown();
+
+            // 采样间隔比 1 秒短，回调被推迟后能尽快把显示追回真实剩余时间
             successCountdownTimer = setInterval(function () {
-                remaining -= 1;
-                if (remaining <= 0) {
+                if (renderCountdown() <= 0) {
                     clearSuccessCountdown();
-                    onDone();
-                    return;
+                    finish();
                 }
-                if (countdownEl) countdownEl.textContent = remaining + ' 秒后自动刷新…';
-            }, 1000);
+            }, 200);
         } else {
+            // 不带倒计时的普通提示，不该拦住 401 跳转
+            autoReloadPending = false;
             if (confirmBtn) {
                 confirmBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>确定';
                 confirmBtn.onclick = null;
@@ -314,7 +332,13 @@
     // 弹窗关闭后定时器仍在跑会误刷新，这里统一收掉
     document.addEventListener('DOMContentLoaded', function () {
         var modalEl = document.getElementById('successModal');
-        if (modalEl) modalEl.addEventListener('hidden.bs.modal', clearSuccessCountdown);
+        if (modalEl) {
+            modalEl.addEventListener('hidden.bs.modal', function () {
+                clearSuccessCountdown();
+                // 用户主动关掉弹窗就不再自动刷新，401 该跳还是要跳
+                autoReloadPending = false;
+            });
+        }
     });
 
     global.ui = {
@@ -326,6 +350,7 @@
         showProgressModal: showProgressModal,
         hideProgressModal: hideProgressModal,
         showSuccessModal: showSuccessModal,
+        isAutoReloadPending: function () { return autoReloadPending; },
         showErrorModal: showErrorModal
     };
 })(window);

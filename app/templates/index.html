@@ -1,9 +1,22 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-bs-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PT-Accelerator v{{ version }}</title>
+    <script>
+        // 主题必须在样式表之前确定：等 DOMContentLoaded 再设会先按浅色画一遍，出现闪白
+        (function () {
+            var mode = 'auto';
+            try { mode = localStorage.getItem('pta-theme') || 'auto'; } catch (e) { }
+            if (mode !== 'light' && mode !== 'dark') mode = 'auto';
+            var dark = mode === 'dark' || (mode === 'auto' && window.matchMedia
+                && window.matchMedia('(prefers-color-scheme: dark)').matches);
+            var root = document.documentElement;
+            root.setAttribute('data-bs-theme', dark ? 'dark' : 'light');
+            root.setAttribute('data-theme-mode', mode);
+        })();
+    </script>
     <link rel="icon" href="/favicon.ico" type="image/x-icon">
     <link href="/static/css/bootstrap.min.css?v={{ app_version }}" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/bootstrap-icons.css?v={{ app_version }}">
@@ -16,11 +29,29 @@
                 <h1>PT-Accelerator <a href="https://github.com/Aeolus2025/PT-Accelerator" target="_blank" rel="noopener noreferrer" class="ms-2 version-link" style="font-size: 0.5em; padding: 0.2em 0.4em; background-color: rgba(255, 255, 255, 0.2); color: #dee2e6; border-radius: 0.25rem; font-weight: normal; text-decoration: none; transition: all 0.2s ease;">v{{ version }}</a></h1>
                 <p class="mb-0">优化您的 PT 体验</p>
             </div>
-            <div>
+            <div class="d-flex align-items-center gap-2">
                 {% if config.auth.enable and current_user and current_user.username != "guest" %}
                     <span class="text-white me-3">欢迎, {{ current_user.username }}</span>
-                    <a href="/logout" class="btn btn-outline-light btn-sm">登出</a>
+                    <a href="/logout" class="header-action">
+                        <i class="bi bi-box-arrow-right"></i>登出
+                    </a>
                 {% endif %}
+                <div class="dropdown">
+                    <button class="theme-picker" type="button" id="theme-picker"
+                            data-bs-toggle="dropdown" aria-expanded="false" aria-label="切换主题" title="切换主题">
+                        <i class="bi bi-circle-half" id="theme-picker-icon"></i>
+                        <span id="theme-picker-label">跟随系统</span>
+                        <i class="bi bi-chevron-down theme-picker-caret"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end theme-menu">
+                        <li><button class="dropdown-item theme-option" type="button" data-theme-mode="light">
+                            <i class="bi bi-sun"></i><span>浅色</span><i class="bi bi-check2 theme-check"></i></button></li>
+                        <li><button class="dropdown-item theme-option" type="button" data-theme-mode="dark">
+                            <i class="bi bi-moon-stars"></i><span>深色</span><i class="bi bi-check2 theme-check"></i></button></li>
+                        <li><button class="dropdown-item theme-option" type="button" data-theme-mode="auto">
+                            <i class="bi bi-circle-half"></i><span>跟随系统</span><i class="bi bi-check2 theme-check"></i></button></li>
+                    </ul>
+                </div>
             </div>
         </div>
         
@@ -162,7 +193,7 @@
                 <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center mb-3">
                     <h5 class="mb-3 mb-md-0"><i class="bi bi-hdd-network me-2"></i>Tracker管理</h5>
                     <div class="d-flex flex-wrap align-items-center gap-2">
-                        <button class="btn btn-outline-warning action-btn" data-bs-toggle="modal" data-bs-target="#cloudflareDomainsModal" data-action="open-cloudflare-domains">
+                        <button class="btn btn-warning action-btn" data-bs-toggle="modal" data-bs-target="#cloudflareDomainsModal" data-action="open-cloudflare-domains">
                             <i class="bi bi-shield-check"></i> Cloudflare白名单
                         </button>
                         <button class="btn btn-success action-btn" data-bs-toggle="modal" data-bs-target="#batchAddTrackerModal">
@@ -184,7 +215,7 @@
                     <div class="card-body p-0">
                         <div class="table-responsive">
                             <table class="table table-hover">
-                                <thead class="table-light">
+                                <thead>
                                     <tr>
                                         <th>名称</th>
                                         <th>域名</th>
@@ -220,7 +251,7 @@
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h5 class="mb-0"><i class="bi bi-list-check me-2"></i>Hosts源管理</h5>
                     <div class="d-flex gap-2">
-                        <button class="btn btn-outline-secondary action-btn" id="btn-restore-default-hosts-sources"
+                        <button class="btn btn-secondary action-btn" id="btn-restore-default-hosts-sources"
                                 title="只补回缺失的预置源，不影响自定义源">
                             <i class="bi bi-arrow-counterclockwise"></i>恢复默认源
                         </button>
@@ -233,7 +264,7 @@
                     <div class="card-body p-0">
                         <div class="table-responsive">
                             <table class="table table-hover">
-                                <thead class="table-light">
+                                <thead>
                                     <tr>
                                         <th>名称</th>
                                         <th>URL</th>
@@ -251,7 +282,7 @@
                 <div class="card mt-4">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <span><i class="bi bi-file-text me-2"></i>当前Hosts文件内容</span>
-                        <button class="btn btn-warning btn-sm action-btn text-white" id="btn-edit-hosts">
+                        <button class="btn btn-warning btn-sm action-btn" id="btn-edit-hosts">
                             <i class="bi bi-pencil-square me-1"></i>Hosts编辑
                         </button>
                     </div>
@@ -290,8 +321,7 @@
                 </div>
 
                 <div class="alert alert-info py-2 small">
-                    这里的参数直接决定 <code>cfst</code> 怎么跑。默认值沿用现有优选行为（仅测延迟），
-                    其余与 cfst 官方默认一致；改动后请点「保存」，下一次优选（手动或定时）生效。
+                    这里的参数直接决定 <code>cfst</code> 怎么跑。默认值与 cfst 官方默认一致；改动后请点「保存」，下一次优选（手动或定时）生效。
                 </div>
 
                 <div class="alert alert-warning py-2 small">
@@ -1203,6 +1233,7 @@ X-Custom: value"></textarea>
     <script src="/static/js/core/store.js?v={{ app_version }}"></script>
     <script src="/static/js/core/ui.js?v={{ app_version }}"></script>
     <script src="/static/js/core/tabs.js?v={{ app_version }}"></script>
+    <script src="/static/js/core/theme.js?v={{ app_version }}"></script>
     <script src="/static/js/pages/dashboard.js?v={{ app_version }}"></script>
     <script src="/static/js/pages/trackers.js?v={{ app_version }}"></script>
     <script src="/static/js/pages/hosts.js?v={{ app_version }}"></script>

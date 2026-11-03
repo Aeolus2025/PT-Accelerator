@@ -1,28 +1,56 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-bs-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>登录 - PT-Accelerator</title>
+    <script>
+        // 主题必须在样式表之前确定：等 DOMContentLoaded 再设会先按浅色画一遍，出现闪白
+        (function () {
+            var mode = 'auto';
+            try { mode = localStorage.getItem('pta-theme') || 'auto'; } catch (e) { }
+            if (mode !== 'light' && mode !== 'dark') mode = 'auto';
+            var dark = mode === 'dark' || (mode === 'auto' && window.matchMedia
+                && window.matchMedia('(prefers-color-scheme: dark)').matches);
+            var root = document.documentElement;
+            root.setAttribute('data-bs-theme', dark ? 'dark' : 'light');
+            root.setAttribute('data-theme-mode', mode);
+        })();
+    </script>
     <link rel="icon" href="/favicon.ico" type="image/x-icon">
     <link href="/static/css/bootstrap.min.css?v={{ app_version }}" rel="stylesheet">
     <style>
+        :root {
+            --login-bg: #f5f7fb;
+            --login-card: #ffffff;
+            --login-accent: #4361ee;
+            --login-border: transparent;
+            --login-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+        [data-bs-theme="dark"] {
+            --login-bg: #1d2128;
+            --login-card: #262b34;
+            --login-accent: #7b93ff;
+            --login-border: #363c47;
+            --login-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
         body {
             display: flex;
             align-items: center;
             justify-content: center;
             min-height: 100vh;
-            background-color: #f5f7fb;
+            background-color: var(--login-bg);
+            color: var(--bs-body-color);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
         }
         .login-card {
             width: 100%;
             max-width: 400px;
             padding: 2rem;
-            border: none;
+            border: 1px solid var(--login-border);
             border-radius: 0.5rem;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-            background-color: #ffffff;
+            box-shadow: var(--login-shadow);
+            background-color: var(--login-card);
         }
         .login-card .logo {
             text-align: center;
@@ -31,7 +59,7 @@
         .login-card .logo h1 {
             font-size: 1.8rem;
             font-weight: 600;
-            color: #4361ee;
+            color: var(--login-accent);
         }
         .form-control:focus {
             border-color: #4361ee;
@@ -71,5 +99,7 @@
         </form>
     </div>
     <script src="/static/js/vendor/bootstrap.bundle.min.js?v={{ app_version }}"></script>
+    <script src="/static/js/core/theme.js?v={{ app_version }}"></script>
+    <script>window.theme.init();</script>
 </body>
 </html> 

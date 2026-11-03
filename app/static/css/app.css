@@ -1,17 +1,149 @@
 /* PT-Accelerator 自定义样式（原 index.html 内联样式） */
 
 :root {
+    /* 品牌色：--primary-color 用于填充（按钮、选中态、页头渐变），
+       --primary-accent 用于暗底上的文字与图标，两者在暗色下取值不同 */
     --primary-color: #4361ee;
+    --primary-accent: #4361ee;
+    --primary-tint: rgba(67, 97, 238, 0.1);
     --secondary-color: #3f37c9;
     --success-color: #0bb85f;
+    --success-tint: rgba(11, 184, 95, 0.1);
     --info-color: #4cc9f0;
     --warning-color: #ffbe0b;
     --danger-color: #ef233c;
+    --danger-tint: rgba(239, 35, 60, 0.1);
     --light-color: #f8f9fa;
     --dark-color: #212529;
+    /* 表面与边框 */
     --body-bg: #f5f7fb;
     --card-bg: #ffffff;
+    --card-header-bg: rgba(0, 0, 0, 0.02);
+    --surface-sunken: #f8f9fa;
+    --border-soft: rgba(0, 0, 0, 0.05);
+    --border-strong: rgba(0, 0, 0, 0.1);
+    --shadow-card: 0 2px 5px rgba(0, 0, 0, 0.05);
+    --shadow-header: 0 4px 6px rgba(0, 0, 0, 0.1);
+    --shadow-modal: 0 10px 15px rgba(0, 0, 0, 0.1);
+    /* 日志级别 */
+    --log-debug: #6c757d;
+    --log-warning: #8a6d00;
+    --log-warning-border: #e0a800;
+    --log-error: #c0392b;
     --border-radius: 0.5rem;
+}
+
+/* 暗色主题：覆盖本文件的变量，同时覆盖 Bootstrap 的几项核心变量，
+   让弹窗、下拉、气泡、表格这些组件一起变深，不必逐个选择器改。
+   注意顺序：本块必须在 :root 之后，两者特异性相同，靠先后决定胜负。 */
+[data-bs-theme="dark"] {
+    /* 暗色表面集中在这里，改深浅只需动这一组 */
+    --dark-bg: #1d2128;
+    --dark-surface: #262b34;
+    --dark-surface-2: #2f3540;
+    --dark-sunken: #1a1e25;
+    --dark-input: #1b1f26;
+    --dark-border: #363c47;
+    --dark-border-strong: #454d5a;
+
+    --bs-body-bg: var(--dark-bg);
+    --bs-body-color: #c3cad4;
+    --bs-border-color: var(--dark-border);
+    --bs-secondary-bg: var(--dark-surface);
+    --bs-tertiary-bg: var(--dark-surface-2);
+    --bs-emphasis-color: #f1f3f5;
+
+    /* 按钮背景保持原色（白字对比度 5.02:1 达标），只把文字色提亮 */
+    --primary-color: #4361ee;
+    --primary-accent: #7b93ff;
+    --primary-tint: rgba(123, 147, 255, 0.16);
+    --secondary-color: #3547c4;
+    --success-color: #0bb85f;
+    --success-tint: rgba(61, 220, 132, 0.16);
+    --info-color: #4cc9f0;
+    --warning-color: #ffbe0b;
+    --danger-color: #ff6b6b;
+    --danger-tint: rgba(255, 107, 107, 0.16);
+    --light-color: #212529;
+    --dark-color: #e9ecef;
+
+    --body-bg: var(--dark-bg);
+    --card-bg: var(--dark-surface);
+    --card-header-bg: var(--dark-surface-2);
+    --surface-sunken: var(--dark-sunken);
+    --border-soft: var(--dark-border);
+    --border-strong: var(--dark-border-strong);
+    /* 暗底上阴影几乎不可见，改用内描边把卡片与背景分开 */
+    --shadow-card: inset 0 0 0 1px var(--dark-border);
+    --shadow-header: 0 4px 12px rgba(0, 0, 0, 0.5);
+    --shadow-modal: 0 10px 30px rgba(0, 0, 0, 0.6);
+
+    --log-debug: #8b929c;
+    --log-warning: #e3b341;
+    --log-warning-border: #e3b341;
+    --log-error: #ff6b6b;
+}
+
+/* 深色下把实心按钮的填充压暗：亮色大色块放在深底上过于抢眼。
+   取值同时保证白字对比度 >= 4.5:1（浅色下的 #0bb85f 配白字只有 2.6:1，本就不达标）。 */
+[data-bs-theme="dark"] .btn-primary {
+    background-color: #3a52c9;
+    border-color: #3a52c9;
+}
+
+[data-bs-theme="dark"] .btn-primary:hover {
+    background-color: #3145a8;
+    border-color: #3145a8;
+}
+
+[data-bs-theme="dark"] .btn-success {
+    background-color: #0a7d43;
+    border-color: #0a7d43;
+}
+
+[data-bs-theme="dark"] .btn-success:hover {
+    background-color: #086636;
+    border-color: #086636;
+}
+
+[data-bs-theme="dark"] .btn-info {
+    background-color: #21778c;
+    border-color: #21778c;
+}
+
+[data-bs-theme="dark"] .btn-info:hover {
+    background-color: #1a6273;
+    border-color: #1a6273;
+}
+
+[data-bs-theme="dark"] .btn-warning {
+    background-color: #c99500;
+    border-color: #c99500;
+}
+
+[data-bs-theme="dark"] .btn-warning:hover {
+    background-color: #b08300;
+    border-color: #b08300;
+}
+
+[data-bs-theme="dark"] .btn-danger {
+    background-color: #b02a37;
+    border-color: #b02a37;
+}
+
+[data-bs-theme="dark"] .btn-danger:hover {
+    background-color: #95232e;
+    border-color: #95232e;
+}
+
+[data-bs-theme="dark"] .btn-secondary {
+    background-color: #55606b;
+    border-color: #55606b;
+}
+
+[data-bs-theme="dark"] .btn-secondary:hover {
+    background-color: #46505a;
+    border-color: #46505a;
 }
 
 body {
@@ -31,7 +163,7 @@ body {
     padding: 1.5rem 2rem;
     border-radius: var(--border-radius);
     margin-bottom: 1.5rem;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    box-shadow: var(--shadow-header);
 }
 
 .app-header h1 {
@@ -56,13 +188,13 @@ body {
     border-radius: var(--border-radius);
     margin-right: 0.5rem;
     font-weight: 500;
-    color: var(--dark-color);
+    color: var(--bs-body-color);
     transition: all 0.2s ease;
 }
 
 .nav-tabs .nav-link:hover {
-    background-color: rgba(67, 97, 238, 0.1);
-    color: var(--primary-color);
+    background-color: var(--primary-tint);
+    color: var(--primary-accent);
 }
 
 .nav-tabs .nav-link.active {
@@ -73,14 +205,14 @@ body {
 .card {
     border: none;
     border-radius: var(--border-radius);
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+    box-shadow: var(--shadow-card);
     margin-bottom: 1.5rem;
     background-color: var(--card-bg);
 }
 
 .card-header {
-    background-color: rgba(0, 0, 0, 0.02);
-    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    background-color: var(--card-header-bg);
+    border-bottom: 1px solid var(--border-soft);
     font-weight: 600;
     padding: 1rem 1.25rem;
 }
@@ -127,9 +259,12 @@ body {
 
 .table thead th {
     border-top: none;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+    border-bottom: 1px solid var(--border-strong);
     font-weight: 600;
-    color: var(--dark-color);
+    /* 原来靠 Bootstrap 的 table-light 类给浅灰底，但那是固定色，暗色下会变成白底白字。
+       改由主题变量控制，两种主题各自取合适的值。 */
+    background-color: var(--card-header-bg);
+    color: var(--bs-emphasis-color);
 }
 
 .table td {
@@ -158,7 +293,7 @@ body {
     overflow-y: auto;
     font-family: Consolas, Monaco, 'Andale Mono', monospace;
     white-space: pre-wrap;
-    background-color: #f8f9fa;
+    background-color: var(--surface-sunken);
     padding: 15px;
     border-radius: var(--border-radius);
     font-size: 0.875rem;
@@ -182,19 +317,19 @@ body {
     max-width: 320px;
 }
 
-.log-rec.lv-debug { color: #6c757d; }
-.log-rec.lv-warning { color: #8a6d00; border-left-color: #e0a800; }
+.log-rec.lv-debug { color: var(--log-debug); }
+.log-rec.lv-warning { color: var(--log-warning); border-left-color: var(--log-warning-border); }
 .log-rec.lv-error,
 .log-rec.lv-critical {
-    color: #c0392b;
-    border-left-color: #c0392b;
+    color: var(--log-error);
+    border-left-color: var(--log-error);
     font-weight: 600;
 }
 
 /* 用 span 是为了符合 <pre> 的 phrasing content 模型，靠这里恢复块级占位 */
 .log-empty {
     display: block;
-    color: #6c757d;
+    color: var(--bs-secondary-color);
     text-align: center;
     padding: 40px 0;
 }
@@ -231,12 +366,12 @@ body {
 }
 
 .badge-running {
-    background-color: rgba(11, 184, 95, 0.1);
+    background-color: var(--success-tint);
     color: var(--success-color);
 }
 
 .badge-stopped {
-    background-color: rgba(239, 35, 60, 0.1);
+    background-color: var(--danger-tint);
     color: var(--danger-color);
 }
 
@@ -260,7 +395,7 @@ body {
     width: 100%;
     margin-top: 0.25rem;
     font-size: 0.875rem;
-    color: #dc3545;
+    color: var(--bs-form-invalid-color);
 }
 
 .input-group.has-validation .valid-feedback {
@@ -268,7 +403,7 @@ body {
     width: 100%;
     margin-top: 0.25rem;
     font-size: 0.875rem;
-    color: #198754;
+    color: var(--bs-form-valid-color);
 }
 
 /* 当输入框有is-invalid类时显示invalid-feedback */
@@ -285,7 +420,7 @@ body {
     max-height: 300px;
     overflow-y: auto;
     font-family: Consolas, Monaco, 'Andale Mono', monospace;
-    background-color: #f8f9fa;
+    background-color: var(--surface-sunken);
     padding: 15px;
     border-radius: var(--border-radius);
     font-size: 0.875rem;
@@ -295,11 +430,12 @@ body {
 .modal-content {
     border-radius: var(--border-radius);
     border: none;
-    box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1);
+    background-color: var(--card-bg);
+    box-shadow: var(--shadow-modal);
 }
 
 .modal-header {
-    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    border-bottom: 1px solid var(--border-soft);
     padding: 1.25rem 1.5rem;
 }
 
@@ -308,7 +444,7 @@ body {
 }
 
 .modal-footer {
-    border-top: 1px solid rgba(0, 0, 0, 0.05);
+    border-top: 1px solid var(--border-soft);
     padding: 1.25rem 1.5rem;
 }
 
@@ -329,7 +465,7 @@ body {
 
 /* 优选设置：官方说明的悬浮图标与气泡宽度 */
 .cfst-official {
-    color: #8a94a6;
+    color: var(--bs-secondary-color);
     cursor: help;
     /* 与前面的 -n 徽标拉开距离：徽标自带内边距，margin 太小会显得贴在一起 */
     margin-left: 0.6rem;
@@ -339,7 +475,7 @@ body {
 
 .cfst-official:hover,
 .cfst-official:focus {
-    color: var(--primary-color);
+    color: var(--primary-accent);
     outline: none;
 }
 
@@ -351,4 +487,120 @@ body {
 .cfst-popover .popover-body {
     font-size: 0.85rem;
     line-height: 1.5;
+}
+
+/* 页头右侧的操作控件（主题下拉、登出）：淡填充 + 细白边。
+   放在品牌渐变上，填充太实会像贴了一块补丁，这里压到几乎只剩轮廓。 */
+.header-action,
+.theme-picker {
+    display: inline-flex;
+    align-items: center;
+    height: 2.1rem;
+    padding: 0 0.6rem;
+    background-color: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 0.4rem;
+    color: #fff;
+    font-size: 0.875rem;
+    line-height: 1;
+    text-decoration: none;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.header-action {
+    gap: 0.4rem;
+}
+
+.theme-picker {
+    /* 三个标签里「跟随系统」最宽，按它定宽，切换时按钮不会跳；
+       菜单也按这个宽度走，所以这里要留够菜单项排版的空间 */
+    gap: 0.35rem;
+    min-width: 7.2rem;
+}
+
+.theme-picker-caret {
+    margin-left: auto;
+    font-size: 0.7rem;
+    opacity: 0.75;
+}
+
+.header-action:hover,
+.theme-picker:hover {
+    background-color: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.38);
+    color: #fff;
+}
+
+.header-action:focus-visible,
+.theme-picker:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 0.2rem rgba(255, 255, 255, 0.25);
+}
+
+/* 菜单与按钮同宽：.dropdown 在 flex 行里会收缩到按钮宽度，width:100% 即等于按钮宽度 */
+.theme-menu {
+    min-width: 0;
+    width: 100%;
+    padding: 0.25rem;
+}
+
+/* 展开的菜单项：图标 + 文字 + 右侧勾选 */
+.theme-option {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.5rem;
+    border-radius: 0.3rem;
+    font-size: 0.875rem;
+}
+
+.theme-option .theme-check {
+    margin-left: auto;
+    visibility: hidden;
+}
+
+.theme-option.active .theme-check {
+    visibility: visible;
+}
+
+/* 选中项不用 Bootstrap 的实心蓝，换成品牌色淡底，与页头那套柔和配色一致 */
+.theme-option.active,
+.theme-option.active:hover {
+    background-color: var(--primary-tint);
+    color: var(--bs-emphasis-color);
+}
+
+/* 暗色下把下拉菜单与气泡的表面色对齐卡片，避免比卡片更亮而显得突兀 */
+[data-bs-theme="dark"] .dropdown-menu {
+    --bs-dropdown-bg: var(--dark-surface);
+    --bs-dropdown-border-color: var(--dark-border);
+}
+
+[data-bs-theme="dark"] .popover {
+    --bs-popover-bg: var(--dark-surface);
+    --bs-popover-border-color: var(--dark-border);
+    --bs-popover-header-bg: var(--dark-surface-2);
+}
+
+[data-bs-theme="dark"] .table {
+    --bs-table-bg: transparent;
+    --bs-table-border-color: var(--dark-border);
+}
+
+/* 暗色下输入框的底色需要比卡片更深，才看得出边界 */
+[data-bs-theme="dark"] .form-control,
+[data-bs-theme="dark"] .form-select {
+    background-color: var(--dark-input);
+    border-color: var(--dark-border);
+    color: var(--bs-body-color);
+}
+
+[data-bs-theme="dark"] .form-control::placeholder {
+    color: #6b7280;
+}
+
+[data-bs-theme="dark"] .form-control:focus,
+[data-bs-theme="dark"] .form-select:focus {
+    background-color: var(--dark-input);
+    color: var(--bs-body-color);
 }

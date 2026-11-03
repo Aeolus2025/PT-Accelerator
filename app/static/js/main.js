@@ -5,7 +5,10 @@
     'use strict';
 
     document.addEventListener('DOMContentLoaded', function () {
-        // 先恢复上次停留的标签页，各页面模块才能收到它触发的 shown 事件
+        // 主题先落地：首屏已由 head 内联脚本设好，这里补上按钮状态与系统偏好监听
+        global.theme.init();
+
+        // 再恢复上次停留的标签页，各页面模块才能收到它触发的 shown 事件
         global.tabs.init();
 
         // 各页面模块初始化（内部完成首屏加载与事件委托绑定）

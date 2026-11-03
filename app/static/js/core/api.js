@@ -27,7 +27,13 @@
             credentials: 'same-origin'
         }).then(function (res) {
             if (res.status === 401) {
-                global.location.href = '/login';
+                // 倒计时刷新弹窗已经开着，马上整页刷新，没必要再抢跳登录页
+                // （开认证 / 改密码后 session 立即失效，后台轮询会撞上 401）
+                var pending = global.ui && global.ui.isAutoReloadPending
+                    && global.ui.isAutoReloadPending();
+                if (!pending) {
+                    global.location.href = '/login';
+                }
                 var authErr = new Error('登录已失效');
                 authErr.status = 401;
                 throw authErr;
